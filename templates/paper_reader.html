@@ -1,0 +1,2044 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>论文阅读器</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
+    <style>
+        /* ===== Reset & Base ===== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif; overflow: hidden; background: #f0f0f0; }
+
+        /* ===== App Layout ===== */
+        #app { display: flex; height: 100vh; }
+
+        /* ===== Sidebar ===== */
+        #sidebar {
+            width: 300px; min-width: 200px; max-width: 500px;
+            background: #1e1e2e; color: #cdd6f4;
+            display: flex; flex-direction: column; flex-shrink: 0;
+            z-index: 10; transition: margin-left .3s ease, opacity .3s ease;
+        }
+        #sidebar.collapsed { margin-left: -300px; opacity: 0; pointer-events: none; }
+        #sidebar.collapsed + #sidebar-resize { display: none; }
+        #sidebar-header {
+            padding: 14px 20px; font-size: 17px; font-weight: 600; color: #cba6f7;
+            border-bottom: 1px solid #313244;
+            display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+        }
+        #search-box { padding: 10px 14px; border-bottom: 1px solid #313244; flex-shrink: 0; }
+        #search-input {
+            width: 100%; padding: 8px 12px; background: #313244;
+            border: 1px solid #45475a; border-radius: 6px; color: #cdd6f4;
+            font-size: 13px; outline: none; transition: border-color .2s;
+        }
+        #search-input:focus { border-color: #cba6f7; }
+        #search-input::placeholder { color: #6c7086; }
+        #tree-container {
+            flex: 1; overflow-y: auto; padding: 6px 0;
+        }
+        #tree-container::-webkit-scrollbar { width: 5px; }
+        #tree-container::-webkit-scrollbar-track { background: transparent; }
+        #tree-container::-webkit-scrollbar-thumb { background: #45475a; border-radius: 3px; }
+
+        /* ===== Tree ===== */
+        .tree-item { user-select: none; }
+        .tree-label {
+            display: flex; align-items: center; padding: 5px 10px 5px 0;
+            font-size: 13px; line-height: 1.5; border-radius: 4px;
+            cursor: pointer; transition: background .15s;
+        }
+        .tree-label:hover { background: #313244; }
+        .tree-label.active { background: #45475a; color: #cba6f7; }
+        .tree-toggle { width: 20px; text-align: center; flex-shrink: 0; color: #6c7086; font-size: 10px; }
+        .tree-icon { margin-right: 6px; flex-shrink: 0; font-size: 14px; }
+        .tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tree-badges { display: flex; gap: 3px; margin-left: 6px; flex-shrink: 0; }
+        .badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 700; letter-spacing: .3px; }
+        .badge-note { background: #a6e3a1; color: #1e1e2e; }
+        .badge-img  { background: #89b4fa; color: #1e1e2e; }
+        .tree-children { display: none; }
+        .tree-children.expanded { display: block; }
+
+        /* ===== Resize Handles ===== */
+        .resize-handle {
+            width: 5px; background: #e0e0e0; cursor: col-resize;
+            flex-shrink: 0; transition: background .2s; position: relative; z-index: 5;
+        }
+        .resize-handle:hover, .resize-handle.active { background: #cba6f7; }
+        body.resizing iframe { pointer-events: none !important; }
+
+        /* ===== Main Area ===== */
+        #main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+        /* Content */
+        #content-area { flex: 1; display: flex; min-height: 0; }
+
+        /* ===== PDF floating overlay ===== */
+        #pdf-panel { position: relative; }
+        #pdf-overlay {
+            position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 10px; gap: 8px;
+            background: linear-gradient(to bottom, rgba(30,30,46,.72) 0%, transparent 100%);
+            pointer-events: none;
+            opacity: 0; transition: opacity .22s;
+        }
+        #pdf-panel:hover #pdf-overlay,
+        #pdf-overlay:focus-within { opacity: 1; }
+        #pdf-overlay > * { pointer-events: auto; }
+        .ov-left  { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+        .ov-center{ display: flex; align-items: center; gap: 4px; }
+        .ov-right { display: flex; align-items: center; gap: 6px; flex: 1; justify-content: flex-end; }
+        #paper-title {
+            font-size: 12px; font-weight: 500; color: rgba(255,255,255,.85);
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px;
+        }
+        .ov-btn {
+            height: 28px; padding: 0 10px; background: rgba(255,255,255,.12);
+            border: 1px solid rgba(255,255,255,.18); border-radius: 5px;
+            cursor: pointer; font-size: 12px; color: rgba(255,255,255,.88);
+            transition: background .15s; white-space: nowrap; flex-shrink: 0;
+        }
+        .ov-btn:hover { background: rgba(255,255,255,.22); }
+        .ov-btn.active { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+        .ov-btn.disabled { opacity: .35; cursor: not-allowed; pointer-events: none; }
+        #pdf-mode-switch { display: flex; gap: 3px; }
+        .pdf-mode-btn.active { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+
+        /* ===== PDF Panel ===== */
+        #pdf-panel { flex: 1; min-width: 300px; position: relative; background: #525659; }
+        #pdf-panel iframe { width: 100%; height: 100%; border: none; }
+        .pdf-view { width: 100%; height: 100%; }
+        #pdf-single-view, #pdf-compare-view { display: none; }
+        #pdf-single-view.active, #pdf-compare-view.active { display: block; }
+        .pdf-placeholder-wrap {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            width: 100%; height: 100%; color: #d1d5db;
+        }
+        #pdf-compare-view { padding: 8px; gap: 8px; }
+        #pdf-compare-view.active { display: flex; }
+        .pdf-col {
+            flex: 1; min-width: 0; background: #3f4346; border-radius: 6px;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        .pdf-col-header {
+            height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+            color: #9ca3af; font-size: 11px; border-bottom: 1px solid #4b5563; background: #2d333b;
+        }
+        .pdf-col-body { flex: 1; min-height: 0; position: relative; }
+        .pdf-col-body iframe { width: 100%; height: 100%; border: none; }
+        .pdf-missing {
+            position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+            color: #d1d5db; font-size: 14px; background: #3f4346;
+        }
+
+        /* ===== Compare Mode Layout ===== */
+        #app.compare-mode #sidebar,
+        #app.compare-mode #sidebar-resize,
+        #app.compare-mode #right-panel,
+        #app.compare-mode #right-resize {
+            display: none !important;
+        }
+
+        /* ===== Right Panel ===== */
+        #right-panel {
+            width: 420px; min-width: 240px; max-width: 900px;
+            display: flex; flex-direction: column; background: #fff;
+            flex-shrink: 0;
+        }
+        #right-panel.collapsed { display: none; }
+        #right-tabs { display: flex; border-bottom: 1px solid #e8e8e8; flex-shrink: 0; height: 30px; }
+        .right-tab {
+            flex: 1; padding: 0 10px; background: #f8f8f8; border: none;
+            border-bottom: 2px solid transparent; cursor: pointer;
+            font-size: 12px; font-weight: 500; color: #999; transition: all .2s;
+        }
+        .right-tab:hover { background: #f0f0f0; color: #666; }
+        .right-tab.active { background: #fff; color: #7c3aed; border-bottom-color: #7c3aed; }
+        #right-content { flex: 1; position: relative; overflow: hidden; }
+        .right-pane {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            display: none; flex-direction: column;
+        }
+        .right-pane.active { display: flex; }
+
+        /* ===== Note Panel ===== */
+        #note-toolbar {
+            display: flex; align-items: center; padding: 4px 10px; gap: 6px;
+            border-bottom: 1px solid #ebebeb; background: #fafafa; flex-shrink: 0; height: 30px;
+        }
+        .note-btn {
+            padding: 2px 9px; background: #fff; border: 1px solid #ddd;
+            border-radius: 4px; cursor: pointer; font-size: 11px; color: #555;
+            transition: all .15s; line-height: 20px;
+        }
+        .note-btn:hover { background: #f0f0f0; }
+        .note-btn.primary { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+        .note-btn.primary:hover { background: #6d28d9; }
+        .note-btn.danger { color: #ef4444; border-color: #fca5a5; }
+        .note-btn.danger:hover { background: #fef2f2; }
+        #note-status { flex: 1; text-align: right; font-size: 10px; color: #bbb; }
+        #note-view {
+            flex: 1; overflow-y: auto; padding: 18px 20px;
+        }
+        #note-view::-webkit-scrollbar { width: 5px; }
+        #note-view::-webkit-scrollbar-track { background: transparent; }
+        #note-view::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+        #note-editor-wrapper { flex: 1; display: none; flex-direction: column; }
+        #note-editor {
+            flex: 1; padding: 20px 24px; border: none; outline: none; resize: none;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+            font-size: 13px; line-height: 1.8; color: #333; background: #fafafa;
+            tab-size: 4;
+        }
+
+        /* ===== Markdown Styles ===== */
+        .markdown-body { font-size: 14.5px; line-height: 1.85; color: #1a1a1a; word-wrap: break-word; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3,
+        .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+            margin: 24px 0 12px; font-weight: 600; line-height: 1.35; color: #111;
+        }
+        .markdown-body h1 { font-size: 1.65em; border-bottom: 2px solid #eee; padding-bottom: 8px; }
+        .markdown-body h2 { font-size: 1.4em; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+        .markdown-body h3 { font-size: 1.2em; color: #7c3aed; }
+        .markdown-body h4 { font-size: 1.05em; }
+        .markdown-body p { margin: 10px 0; }
+        .markdown-body ul, .markdown-body ol { padding-left: 26px; margin: 10px 0; }
+        .markdown-body li { margin: 5px 0; }
+        .markdown-body li > ul, .markdown-body li > ol { margin: 4px 0; }
+        .markdown-body code {
+            background: #f3f0ff; padding: 2px 6px; border-radius: 4px;
+            font-size: .88em; font-family: 'JetBrains Mono', monospace; color: #7c3aed;
+        }
+        .markdown-body pre {
+            background: #f6f8fa; padding: 16px 20px; border-radius: 8px;
+            overflow-x: auto; margin: 14px 0; border: 1px solid #e8e8e8;
+        }
+        .markdown-body pre code { background: none; padding: 0; color: inherit; font-size: .9em; }
+        .markdown-body blockquote {
+            border-left: 4px solid #7c3aed; padding: 10px 18px; margin: 14px 0;
+            background: #faf5ff; color: #444; border-radius: 0 6px 6px 0;
+        }
+        .markdown-body blockquote p { margin: 4px 0; }
+        .markdown-body hr { border: none; border-top: 1px solid #e0e0e0; margin: 24px 0; }
+        .markdown-body strong { color: #111; font-weight: 700; }
+        .markdown-body em { color: #555; }
+        .markdown-body a { color: #7c3aed; text-decoration: none; border-bottom: 1px dashed #c4b5fd; }
+        .markdown-body a:hover { border-bottom-style: solid; }
+        .markdown-body img { max-width: 100%; border-radius: 6px; margin: 8px 0; }
+        .markdown-body table { border-collapse: collapse; margin: 14px 0; width: 100%; }
+        .markdown-body th, .markdown-body td { border: 1px solid #ddd; padding: 8px 14px; text-align: left; }
+        .markdown-body th { background: #f6f8fa; font-weight: 600; }
+        .markdown-body .katex-display { margin: 18px 0; overflow-x: auto; overflow-y: hidden; }
+
+        /* ===== Image Panel ===== */
+        #image-toolbar {
+            position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+            z-index: 10; display: flex; align-items: center; gap: 6px;
+            background: rgba(30,30,46,.65); backdrop-filter: blur(4px);
+            padding: 3px 8px; border-radius: 20px;
+            opacity: 0; transition: opacity .2s; pointer-events: none;
+        }
+        #image-pane:hover #image-toolbar { opacity: 1; pointer-events: auto; }
+        .lang-toggle {
+            display: flex; background: rgba(255,255,255,.12); border-radius: 12px; overflow: hidden;
+            border: 1px solid rgba(255,255,255,.2);
+        }
+        .lang-btn {
+            padding: 2px 10px; border: none; background: transparent;
+            cursor: pointer; font-size: 11px; font-weight: 500; color: rgba(255,255,255,.75);
+            transition: all .2s;
+        }
+        .lang-btn.active { background: #7c3aed; color: #fff; }
+        #image-zoom-info { font-size: 10px; color: rgba(255,255,255,.5); }
+        #image-container {
+            flex: 1; overflow: auto; display: flex;
+            align-items: flex-start; justify-content: center;
+            padding: 12px; background: #f0f0f0; position: relative;
+        }
+        #image-container::-webkit-scrollbar { width: 6px; height: 6px; }
+        #image-container::-webkit-scrollbar-track { background: transparent; }
+        #image-container::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+        #paper-image { max-width: 100%; cursor: zoom-in; transition: max-width .25s ease; border-radius: 4px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+        #paper-image.zoomed { max-width: none; cursor: zoom-out; }
+
+        /* ===== Image action buttons (toolbar) ===== */
+        .img-act-btn {
+            width: 26px; height: 26px; border-radius: 50%;
+            border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.12);
+            color: rgba(255,255,255,.88); font-size: 13px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: background .15s; padding: 0; line-height: 1;
+        }
+        .img-act-btn:hover { background: rgba(255,255,255,.25); }
+        .img-act-delete:hover { background: rgba(239,68,68,.5); }
+
+        /* ===== Big generate button (empty state) ===== */
+        .gen-btn-big {
+            margin-top: 12px; padding: 10px 24px;
+            background: #7c3aed; color: #fff; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 500; cursor: pointer;
+            transition: background .15s; box-shadow: 0 2px 8px rgba(124,58,237,.35);
+        }
+        .gen-btn-big:hover { background: #6d28d9; }
+        .gen-btn-big:disabled { opacity: .5; cursor: not-allowed; }
+
+        /* ===== Spinner ===== */
+        .spinner {
+            width: 36px; height: 36px; border: 3px solid #e0e0e0;
+            border-top-color: #7c3aed; border-radius: 50%;
+            animation: spin .8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ===== Note generating state ===== */
+        .note-generating-bar {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 16px; background: #faf5ff; border-bottom: 1px solid #e8e8e8;
+            font-size: 12px; color: #7c3aed;
+        }
+        .note-generating-bar .spinner { width: 16px; height: 16px; border-width: 2px; }
+
+        /* ===== arXiv Fetch Input ===== */
+        .arxiv-fetch-box {
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .arxiv-input-row {
+            display: flex; align-items: center; gap: 6px;
+        }
+        .arxiv-input {
+            width: 240px; padding: 7px 12px; border-radius: 6px;
+            border: 1px solid #555; background: #3a3a4a; color: #e0e0e0;
+            font-size: 13px; outline: none; transition: border-color .2s;
+        }
+        .arxiv-input:focus { border-color: #7c3aed; }
+        .arxiv-input::placeholder { color: #888; }
+        .arxiv-fetch-btn {
+            padding: 7px 16px; border-radius: 6px; border: none;
+            background: #7c3aed; color: #fff; font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: background .15s; white-space: nowrap;
+        }
+        .arxiv-fetch-btn:hover { background: #6d28d9; }
+        .arxiv-fetch-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+        /* ===== Empty / Placeholder ===== */
+        .empty-state {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; height: 100%; color: #aaa; gap: 12px; padding: 40px;
+        }
+        .empty-state .icon { font-size: 52px; opacity: .6; }
+        .empty-state .text { font-size: 14px; }
+        .empty-state .sub  { font-size: 12px; color: #bbb; }
+
+        /* ===== Notification ===== */
+        #notification {
+            position: fixed; top: 16px; right: 16px; z-index: 1000;
+            padding: 10px 20px; border-radius: 8px; font-size: 13px;
+            color: #fff; opacity: 0; transform: translateY(-10px);
+            transition: all .3s; pointer-events: none;
+        }
+        #notification.show { opacity: 1; transform: translateY(0); }
+        #notification.success { background: #22c55e; }
+        #notification.error { background: #ef4444; }
+        #notification.info { background: #3b82f6; }
+
+        /* ===== Image Lightbox ===== */
+        #lightbox {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 2000; background: rgba(0,0,0,.82);
+            align-items: center; justify-content: center; flex-direction: column;
+            cursor: zoom-out;
+        }
+        #lightbox.show { display: flex; }
+        #lightbox-toolbar {
+            position: absolute; top: 0; left: 0; right: 0;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px; z-index: 2001;
+            background: linear-gradient(to bottom, rgba(0,0,0,.55), transparent);
+        }
+        #lightbox-toolbar .lang-toggle { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.25); }
+        #lightbox-toolbar .lang-btn { color: rgba(255,255,255,.75); }
+        #lightbox-toolbar .lang-btn.active { background: #7c3aed; color: #fff; }
+        #lightbox-close {
+            width: 36px; height: 36px; border-radius: 50%; border: none;
+            background: rgba(255,255,255,.15); color: #fff; font-size: 20px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: background .2s;
+        }
+        #lightbox-close:hover { background: rgba(255,255,255,.3); }
+        #lightbox-img-wrap {
+            max-width: 94vw; max-height: 92vh; overflow: auto;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #lightbox-img {
+            max-width: 94vw; max-height: 90vh; object-fit: contain;
+            border-radius: 4px; box-shadow: 0 8px 40px rgba(0,0,0,.4);
+            transition: transform .25s ease; cursor: default;
+        }
+        #lightbox-img.lb-zoomed { max-width: none; max-height: none; cursor: grab; }
+        #lightbox-img.lb-zoomed:active { cursor: grabbing; }
+        #lightbox-info {
+            position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+            color: rgba(255,255,255,.6); font-size: 12px;
+            background: rgba(0,0,0,.35); padding: 4px 14px; border-radius: 20px;
+        }
+
+        /* ===== Import Paper Modal ===== */
+        .modal-backdrop {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 3000; background: rgba(0,0,0,.55);
+            display: none; align-items: center; justify-content: center;
+        }
+        .modal-backdrop.show { display: flex; }
+        .modal-box {
+            background: #1e1e2e; color: #cdd6f4; border-radius: 12px;
+            padding: 24px 28px; min-width: 420px; max-width: 520px; width: 90%;
+            box-shadow: 0 16px 48px rgba(0,0,0,.4);
+        }
+        .modal-title { font-size: 17px; font-weight: 600; color: #cba6f7; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .modal-field { margin-bottom: 14px; }
+        .modal-field label { display: block; font-size: 12px; color: #9399b2; margin-bottom: 5px; }
+        .modal-field input, .modal-field select {
+            width: 100%; padding: 9px 12px; border-radius: 6px;
+            border: 1px solid #45475a; background: #313244; color: #cdd6f4;
+            font-size: 13px; outline: none; transition: border-color .2s;
+        }
+        .modal-field input:focus, .modal-field select:focus { border-color: #cba6f7; }
+        .modal-field select option { background: #313244; color: #cdd6f4; }
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+        .modal-btn {
+            padding: 8px 20px; border-radius: 6px; border: none; font-size: 13px;
+            font-weight: 500; cursor: pointer; transition: background .15s;
+        }
+        .modal-btn-primary { background: #7c3aed; color: #fff; }
+        .modal-btn-primary:hover { background: #6d28d9; }
+        .modal-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+        .modal-btn-cancel { background: #45475a; color: #cdd6f4; }
+        .modal-btn-cancel:hover { background: #585b70; }
+
+        /* Import progress */
+        .import-progress { display: none; margin-top: 12px; }
+        .import-progress.active { display: block; }
+        .import-step {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 0; font-size: 12px; color: #9399b2;
+        }
+        .import-step .step-icon { width: 18px; text-align: center; flex-shrink: 0; }
+        .import-step.working { color: #89b4fa; }
+        .import-step.done { color: #a6e3a1; }
+        .import-step.warn { color: #fab387; }
+        .import-step.error { color: #f38ba8; }
+        .import-step.skip { color: #6c7086; }
+        .import-step .step-spinner {
+            width: 14px; height: 14px; border: 2px solid #45475a;
+            border-top-color: #89b4fa; border-radius: 50%;
+            animation: spin .8s linear infinite;
+        }
+
+        /* ===== Context Menu ===== */
+        .ctx-menu {
+            position: fixed; z-index: 4000; min-width: 160px;
+            background: #1e1e2e; border: 1px solid #45475a;
+            border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+            padding: 4px 0; display: none;
+        }
+        .ctx-menu.show { display: block; }
+        .ctx-menu-item {
+            padding: 7px 16px; font-size: 13px; color: #cdd6f4;
+            cursor: pointer; display: flex; align-items: center; gap: 8px;
+            transition: background .12s;
+        }
+        .ctx-menu-item:hover { background: #313244; }
+        .ctx-menu-item .ctx-icon { width: 16px; text-align: center; }
+
+        /* ===== Folder Browser (shared by Import & Move) ===== */
+        .folder-browser { border: 1px solid #45475a; border-radius: 6px; background: #313244; overflow: hidden; }
+        .folder-breadcrumb {
+            display: flex; align-items: center; gap: 2px; padding: 8px 12px;
+            border-bottom: 1px solid #45475a; flex-wrap: wrap; min-height: 34px;
+            font-size: 12px; color: #9399b2;
+        }
+        .bc-item {
+            cursor: pointer; color: #89b4fa; padding: 1px 4px; border-radius: 3px;
+            transition: background .12s;
+        }
+        .bc-item:hover { background: rgba(137,180,250,.15); }
+        .bc-item.bc-current { color: #cba6f7; cursor: default; font-weight: 600; }
+        .bc-item.bc-current:hover { background: transparent; }
+        .bc-sep { color: #585b70; font-size: 10px; }
+        .folder-list {
+            max-height: 240px; overflow-y: auto;
+        }
+        .folder-list::-webkit-scrollbar { width: 5px; }
+        .folder-list::-webkit-scrollbar-track { background: transparent; }
+        .folder-list::-webkit-scrollbar-thumb { background: #585b70; border-radius: 3px; }
+        .folder-item {
+            padding: 8px 14px; font-size: 13px; color: #cdd6f4;
+            cursor: pointer; transition: background .12s; display: flex; align-items: center; gap: 6px;
+        }
+        .folder-item:hover { background: #45475a; }
+        .folder-item .folder-icon { flex-shrink: 0; }
+        .folder-item .folder-arrow { margin-left: auto; color: #585b70; font-size: 10px; }
+        .folder-empty {
+            padding: 16px; text-align: center; font-size: 12px; color: #6c7086;
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <!-- ========== Sidebar ========== -->
+    <div id="sidebar">
+        <div id="sidebar-header">论文阅读器 <button id="btn-import-paper" style="margin-left:auto;background:#7c3aed;color:#fff;border:none;border-radius:5px;padding:3px 10px;font-size:12px;cursor:pointer;font-weight:500" title="通过 arXiv ID 导入论文">➕ 导入</button></div>
+        <div id="search-box">
+            <input type="text" id="search-input" placeholder="搜索论文名称…">
+        </div>
+        <div id="tree-container"></div>
+    </div>
+
+    <!-- Resize handle: sidebar ↔ main -->
+    <div id="sidebar-resize" class="resize-handle"></div>
+
+    <!-- ========== Main Area ========== -->
+    <div id="main-area">
+        <!-- Content Area -->
+        <div id="content-area">
+            <!-- PDF Panel -->
+            <div id="pdf-panel">
+                <!-- Floating overlay controls -->
+                <div id="pdf-overlay">
+                    <div class="ov-left">
+                        <button class="ov-btn" id="btn-toggle-sidebar" title="显示/隐藏左侧目录">☰</button>
+                        <span id="paper-title">请从左侧目录选择论文</span>
+                    </div>
+                    <div class="ov-center">
+                        <div id="pdf-mode-switch">
+                            <button class="ov-btn pdf-mode-btn active" data-pdf-mode="en">英文</button>
+                            <button class="ov-btn pdf-mode-btn" data-pdf-mode="zh">中文</button>
+                            <button class="ov-btn pdf-mode-btn" data-pdf-mode="compare">中英对照</button>
+                        </div>
+                    </div>
+                    <div class="ov-right">
+                        <button class="ov-btn" id="btn-toggle-right" title="显示/隐藏右侧面板">📝 笔记 &amp; 插图</button>
+                    </div>
+                </div>
+                <div id="pdf-single-view" class="pdf-view active">
+                    <div id="pdf-placeholder" class="empty-state">
+                        <div class="icon">📄</div>
+                        <div class="text">选择一篇论文开始阅读</div>
+                        <div class="sub">从左侧目录树中点击论文名</div>
+                    </div>
+                    <iframe id="pdf-viewer" style="display:none;"></iframe>
+                </div>
+                <div id="pdf-compare-view" class="pdf-view">
+                    <div class="pdf-col">
+                        <div class="pdf-col-header">英文 PDF</div>
+                        <div class="pdf-col-body">
+                            <iframe id="pdf-viewer-en"></iframe>
+                            <div id="pdf-missing-en" class="pdf-missing">英文 PDF 缺失</div>
+                        </div>
+                    </div>
+                    <div class="pdf-col">
+                        <div class="pdf-col-header">中文 PDF</div>
+                        <div class="pdf-col-body">
+                            <iframe id="pdf-viewer-zh"></iframe>
+                            <div id="pdf-missing-zh" class="pdf-missing">
+                            <div class="arxiv-fetch-box">
+                                <div style="font-size:14px;color:#d1d5db;margin-bottom:10px">中文 PDF 缺失</div>
+                                <div class="arxiv-input-row">
+                                    <input type="text" id="arxiv-input-compare" class="arxiv-input" placeholder="输入 arXiv ID 获取中文翻译…">
+                                    <button class="arxiv-fetch-btn" id="btn-fetch-zh-compare">获取</button>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resize handle: PDF ↔ right panel -->
+            <div id="right-resize" class="resize-handle"></div>
+
+            <!-- Right Panel: Note + Image -->
+            <div id="right-panel">
+                <div id="right-tabs">
+                    <button class="right-tab active" data-tab="note">📝 笔记</button>
+                    <button class="right-tab" data-tab="image">🖼️ 插图</button>
+                </div>
+                <div id="right-content">
+                    <!-- Note Pane -->
+                    <div id="note-pane" class="right-pane active">
+                        <div id="note-toolbar">
+                            <button class="note-btn" id="btn-edit">✏️ 编辑</button>
+                            <button class="note-btn primary" id="btn-generate-note" style="display:none">🤖 生成笔记</button>
+                            <button class="note-btn danger" id="btn-delete-note" style="display:none">🗑️ 删除</button>
+                            <button class="note-btn primary" id="btn-save" style="display:none">💾 保存</button>
+                            <button class="note-btn danger" id="btn-cancel" style="display:none">✕ 取消</button>
+                            <span id="note-status"></span>
+                        </div>
+                        <div id="note-view" class="markdown-body">
+                            <div class="empty-state">
+                                <div class="icon">📝</div>
+                                <div class="text">选择论文后查看笔记</div>
+                            </div>
+                        </div>
+                        <div id="note-editor-wrapper">
+                            <textarea id="note-editor" placeholder="在此编写 Markdown 笔记…&#10;&#10;支持 KaTeX 数学公式（$...$  $$...$$）、代码高亮等"></textarea>
+                        </div>
+                    </div>
+                    <!-- Image Pane -->
+                    <div id="image-pane" class="right-pane">
+                        <div id="image-toolbar">
+                            <div class="lang-toggle">
+                                <button class="lang-btn active" data-lang="zh">中文</button>
+                                <button class="lang-btn" data-lang="en">EN</button>
+                            </div>
+                            <button class="img-act-btn img-act-generate" id="btn-generate-image" style="display:none" title="AI 生成插图">🤖</button>
+                            <button class="img-act-btn" id="btn-translate-image" style="display:none" title="翻译为中文版">🌐</button>
+                            <button class="img-act-btn img-act-delete" id="btn-delete-image" style="display:none" title="删除所有插图">🗑️</button>
+                            <span id="image-zoom-info"></span>
+                        </div>
+                        <div id="image-container">
+                            <div id="image-placeholder" class="empty-state">
+                                <div class="icon">🖼️</div>
+                                <div class="text">选择论文后查看插图</div>
+                                <button class="gen-btn-big" id="btn-generate-image-big" style="display:none">🤖 AI 生成插图</button>
+                            </div>
+                            <div id="image-generating" class="empty-state" style="display:none">
+                                <div class="spinner"></div>
+                                <div class="text">正在生成插图，请稍候…</div>
+                                <div class="sub">AI 绘图可能需要 30 秒以上</div>
+                            </div>
+                            <img id="paper-image" style="display:none" alt="论文插图">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Notification -->
+<div id="notification"></div>
+
+<!-- Import Paper Modal -->
+<div id="import-modal" class="modal-backdrop">
+    <div class="modal-box">
+        <div class="modal-title">📥 导入论文</div>
+        <div id="import-form">
+            <div class="modal-field">
+                <label>arXiv ID 或链接</label>
+                <input type="text" id="import-arxiv-input" placeholder="例如: 2406.12345 或 https://arxiv.org/abs/2406.12345">
+            </div>
+            <div class="modal-field">
+                <label>保存到文件夹</label>
+                <div class="folder-browser">
+                    <div class="folder-breadcrumb" id="import-breadcrumb"></div>
+                    <div class="folder-list" id="import-folder-list"></div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn modal-btn-cancel" id="import-cancel-btn">取消</button>
+                <button class="modal-btn modal-btn-primary" id="import-start-btn">开始导入</button>
+            </div>
+        </div>
+        <div id="import-progress" class="import-progress"></div>
+        <div id="import-done-actions" class="modal-actions" style="display:none">
+            <button class="modal-btn modal-btn-primary" id="import-close-btn">完成</button>
+        </div>
+    </div>
+</div>
+
+<!-- Move Paper Modal -->
+<div id="move-modal" class="modal-backdrop">
+    <div class="modal-box">
+        <div class="modal-title">📁 移动论文</div>
+        <div class="modal-field">
+            <label id="move-paper-name">论文名称</label>
+        </div>
+        <div class="modal-field">
+            <label>选择目标文件夹</label>
+            <div class="folder-browser">
+                <div class="folder-breadcrumb" id="move-breadcrumb"></div>
+                <div class="folder-list" id="move-folder-list"></div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" id="move-cancel-btn">取消</button>
+            <button class="modal-btn modal-btn-primary" id="move-confirm-btn">移动</button>
+        </div>
+    </div>
+</div>
+
+<!-- Context Menu -->
+<div id="ctx-menu" class="ctx-menu">
+    <div class="ctx-menu-item" id="ctx-move"><span class="ctx-icon">📁</span> 移动到…</div>
+</div>
+
+<!-- Image Lightbox -->
+<div id="lightbox">
+    <div id="lightbox-toolbar">
+        <div class="lang-toggle">
+            <button class="lang-btn lb-lang active" data-lang="zh">中文</button>
+            <button class="lang-btn lb-lang" data-lang="en">English</button>
+        </div>
+        <button id="lightbox-close">✕</button>
+    </div>
+    <div id="lightbox-img-wrap">
+        <img id="lightbox-img" alt="论文插图">
+    </div>
+    <div id="lightbox-info"></div>
+</div>
+
+<!-- CDN Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
+<script>
+(() => {
+    'use strict';
+
+    // ==================== State ====================
+    const state = {
+        currentPaper: null,
+        treeData: null,
+        pdfMode: 'en',
+        imageLang: 'zh',
+        isEditing: false,
+        noteModified: false,
+        originalNoteContent: '',
+        sidebarCollapsed: false,
+        rightCollapsed: false,
+        preCompareLayout: null,
+        generatingNote: false,
+        generatingImage: false,
+        ctxTarget: null,         // right-click target paper node
+        moveTargetStem: null,    // stem of paper being moved
+        importing: false,
+    };
+
+    // ==================== DOM ====================
+    const $ = id => document.getElementById(id);
+    const treeContainer   = $('tree-container');
+    const searchInput      = $('search-input');
+    const appRoot          = $('app');
+    const paperTitle       = $('paper-title');
+    const pdfViewer        = $('pdf-viewer');
+    const pdfViewerEn      = $('pdf-viewer-en');
+    const pdfViewerZh      = $('pdf-viewer-zh');
+    const pdfPlaceholder   = $('pdf-placeholder');
+    const pdfSingleView    = $('pdf-single-view');
+    const pdfCompareView   = $('pdf-compare-view');
+    const pdfMissingEn     = $('pdf-missing-en');
+    const pdfMissingZh     = $('pdf-missing-zh');
+    const noteView         = $('note-view');
+    const noteEditor       = $('note-editor');
+    const noteEditorWrap   = $('note-editor-wrapper');
+    const noteStatus       = $('note-status');
+    const btnEdit          = $('btn-edit');
+    const btnSave          = $('btn-save');
+    const btnCancel        = $('btn-cancel');
+    const btnGenerateNote  = $('btn-generate-note');
+    const btnDeleteNote    = $('btn-delete-note');
+    const btnGenerateImage  = $('btn-generate-image');
+    const btnTranslateImage = $('btn-translate-image');
+    const btnDeleteImage    = $('btn-delete-image');
+    const btnGenImageBig    = $('btn-generate-image-big');
+    const imageGenerating  = $('image-generating');
+    const paperImage       = $('paper-image');
+    const imagePlaceholder = $('image-placeholder');
+    const imageZoomInfo    = $('image-zoom-info');
+    const rightPanel       = $('right-panel');
+    const rightResize      = $('right-resize');
+    const notification     = $('notification');
+    const sidebar          = $('sidebar');
+    const sidebarResize    = $('sidebar-resize');
+    const lightbox         = $('lightbox');
+    const lightboxImg      = $('lightbox-img');
+    const lightboxInfo     = $('lightbox-info');
+    const lightboxImgWrap  = $('lightbox-img-wrap');
+
+    // ==================== Utilities ====================
+    function encodePath(p) {
+        return p.split('/').map(s => encodeURIComponent(s)).join('/');
+    }
+
+    let _notifyTimer;
+    function notify(msg, type = 'info', duration = 2500) {
+        clearTimeout(_notifyTimer);
+        notification.textContent = msg;
+        notification.className = type + ' show';
+        _notifyTimer = setTimeout(() => { notification.className = ''; }, duration);
+    }
+
+    function setSidebarCollapsed(collapsed) {
+        state.sidebarCollapsed = collapsed;
+        sidebar.classList.toggle('collapsed', collapsed);
+        if (collapsed) {
+            sidebar.style.marginLeft = '-' + sidebar.offsetWidth + 'px';
+        } else {
+            sidebar.style.marginLeft = '';
+        }
+    }
+
+    function setRightPanelCollapsed(collapsed) {
+        state.rightCollapsed = collapsed;
+        rightPanel.classList.toggle('collapsed', collapsed);
+        rightResize.style.display = collapsed ? 'none' : '';
+    }
+
+    function updatePdfModeButtons() {
+        document.querySelectorAll('.pdf-mode-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.pdfMode === state.pdfMode);
+        });
+    }
+
+    function applyPdfModeLayout() {
+        const isCompare = state.pdfMode === 'compare';
+        appRoot.classList.toggle('compare-mode', isCompare);
+
+        const btnToggleSidebar = $('btn-toggle-sidebar');
+        const btnToggleRight = $('btn-toggle-right');
+        btnToggleSidebar.classList.toggle('disabled', isCompare);
+        btnToggleRight.classList.toggle('disabled', isCompare);
+
+        if (isCompare) {
+            if (!state.preCompareLayout) {
+                state.preCompareLayout = {
+                    sidebarCollapsed: state.sidebarCollapsed,
+                    rightCollapsed: state.rightCollapsed,
+                };
+            }
+        } else if (state.preCompareLayout) {
+            setSidebarCollapsed(state.preCompareLayout.sidebarCollapsed);
+            setRightPanelCollapsed(state.preCompareLayout.rightCollapsed);
+            state.preCompareLayout = null;
+        }
+    }
+
+    // ==================== Markdown Renderer ====================
+    function renderMarkdown(src) {
+        if (!src || !src.trim()) return '<div class="empty-state"><div class="text">暂无笔记内容，点击 ✏️ 编辑 开始撰写</div></div>';
+
+        const mathBlocks = [];
+        let processed = src;
+
+        // Block math: $$...$$
+        processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (_, math) => {
+            const i = mathBlocks.length;
+            mathBlocks.push({ math: math.trim(), display: true });
+            return `%%MATHBLOCK${i}%%`;
+        });
+        // Inline math: $...$  (not greedy, not crossing newlines)
+        processed = processed.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
+            const i = mathBlocks.length;
+            mathBlocks.push({ math: math.trim(), display: false });
+            return `%%MATHBLOCK${i}%%`;
+        });
+
+        // marked options
+        marked.setOptions({ breaks: true, gfm: true, smartypants: false });
+        let html = marked.parse(processed);
+
+        // Restore math blocks → KaTeX
+        html = html.replace(/%%MATHBLOCK(\d+)%%/g, (_, idx) => {
+            const { math, display } = mathBlocks[parseInt(idx)];
+            try {
+                return katex.renderToString(math, { displayMode: display, throwOnError: false });
+            } catch (e) {
+                return `<code class="math-error">${math}</code>`;
+            }
+        });
+
+        return html;
+    }
+
+    /** Post-process: apply highlight.js to code blocks */
+    function highlightCodeBlocks(container) {
+        container.querySelectorAll('pre code').forEach(block => {
+            hljs.highlightElement(block);
+        });
+    }
+
+    // ==================== Tree ====================
+    function renderTree(node, depth, filter) {
+        const el = document.createElement('div');
+        el.className = 'tree-item';
+
+        if (node.type === 'dir') {
+            const label = document.createElement('div');
+            label.className = 'tree-label';
+            label.style.paddingLeft = (depth * 16 + 8) + 'px';
+
+            const toggle = document.createElement('span');
+            toggle.className = 'tree-toggle';
+            toggle.textContent = '▸';
+
+            const icon = document.createElement('span');
+            icon.className = 'tree-icon';
+            icon.textContent = '📁';
+
+            const name = document.createElement('span');
+            name.className = 'tree-name';
+            name.textContent = node.name;
+            name.title = node.path || node.name;
+
+            label.append(toggle, icon, name);
+            el.appendChild(label);
+
+            const childrenWrap = document.createElement('div');
+            childrenWrap.className = 'tree-children';
+
+            let visibleCount = 0;
+            for (const child of node.children) {
+                const childEl = renderTree(child, depth + 1, filter);
+                if (childEl) {
+                    childrenWrap.appendChild(childEl);
+                    visibleCount++;
+                }
+            }
+            if (filter && visibleCount === 0) return null;
+
+            el.appendChild(childrenWrap);
+
+            // Auto-expand when filtered or shallow depth
+            if (filter || depth < 1) {
+                childrenWrap.classList.add('expanded');
+                toggle.textContent = '▾';
+                icon.textContent = '📂';
+            }
+
+            label.addEventListener('click', () => {
+                const expanded = childrenWrap.classList.toggle('expanded');
+                toggle.textContent = expanded ? '▾' : '▸';
+                icon.textContent = expanded ? '📂' : '📁';
+            });
+        } else {
+            // Paper file
+            const lf = filter.toLowerCase();
+            if (filter && !node.name.toLowerCase().includes(lf)) return null;
+
+            const label = document.createElement('div');
+            label.className = 'tree-label';
+            label.style.paddingLeft = (depth * 16 + 28) + 'px';
+            label.dataset.stem = node.stem;
+
+            const icon = document.createElement('span');
+            icon.className = 'tree-icon';
+            icon.textContent = '📄';
+
+            const name = document.createElement('span');
+            name.className = 'tree-name';
+            name.textContent = node.name;
+            name.title = node.name;
+
+            const badges = document.createElement('span');
+            badges.className = 'tree-badges';
+            if (node.hasNote) {
+                const b = document.createElement('span');
+                b.className = 'badge badge-note'; b.textContent = 'N'; b.title = '有笔记';
+                badges.appendChild(b);
+            }
+            if (node.hasImageZh || node.hasImageEn) {
+                const b = document.createElement('span');
+                b.className = 'badge badge-img'; b.textContent = 'I'; b.title = '有插图';
+                badges.appendChild(b);
+            }
+
+            label.append(icon, name, badges);
+            el.appendChild(label);
+
+            label.addEventListener('click', () => selectPaper(node, label));
+            label.addEventListener('contextmenu', e => {
+                e.preventDefault();
+                state.ctxTarget = node;
+                showContextMenu(e.clientX, e.clientY);
+            });
+        }
+        return el;
+    }
+
+    function buildTree(filter = '') {
+        treeContainer.innerHTML = '';
+        if (!state.treeData) return;
+        const root = renderTree(state.treeData, 0, filter);
+        if (!root) return;
+        // Flatten root: attach root's children directly
+        const children = root.querySelector('.tree-children');
+        if (children) {
+            [...children.children].forEach(c => treeContainer.appendChild(c));
+        }
+        // Restore active highlight
+        if (state.currentPaper) {
+            treeContainer.querySelectorAll('[data-stem]').forEach(lbl => {
+                if (lbl.dataset.stem === state.currentPaper.stem) lbl.classList.add('active');
+            });
+        }
+    }
+
+    async function loadTree() {
+        try {
+            const resp = await fetch('/api/tree');
+            state.treeData = await resp.json();
+            buildTree();
+        } catch (e) {
+            console.error('loadTree error:', e);
+            treeContainer.innerHTML = '<div style="padding:16px;color:#f38ba8;">加载目录失败，请刷新</div>';
+        }
+    }
+
+    // ==================== Paper Selection ====================
+    function selectPaper(paper, labelEl) {
+        if (state.isEditing && state.noteModified) {
+            if (!confirm('当前笔记未保存，是否放弃更改？')) return;
+        }
+
+        // Update tree active state
+        treeContainer.querySelectorAll('.tree-label.active').forEach(el => el.classList.remove('active'));
+        if (labelEl) labelEl.classList.add('active');
+
+        state.currentPaper = paper;
+        state.isEditing = false;
+        state.noteModified = false;
+
+        paperTitle.textContent = paper.name;
+        document.title = paper.name + ' - 论文阅读器';
+
+        loadPDFByMode(paper.path);
+        loadNote(paper.stem);
+        loadImage(paper.stem, state.imageLang);
+    }
+
+    // ==================== PDF ====================
+    async function checkPdfExists(lang, path) {
+        try {
+            const resp = await fetch('/api/pdf-exists/' + lang + '/' + encodePath(path));
+            const data = await resp.json();
+            return !!data.exists;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function loadPDFSingle(path, lang) {
+        pdfSingleView.classList.add('active');
+        pdfCompareView.classList.remove('active');
+
+        const exists = await checkPdfExists(lang, path);
+        if (!exists) {
+            pdfViewer.style.display = 'none';
+            pdfPlaceholder.style.display = '';
+            if (lang === 'zh') {
+                pdfPlaceholder.innerHTML = `<div class="icon">📄</div><div class="text">暂无中文 PDF</div>
+                    <div class="arxiv-input-row" style="margin-top:12px">
+                        <input type="text" id="arxiv-input-single" class="arxiv-input" placeholder="输入 arXiv ID 获取中文翻译…">
+                        <button class="arxiv-fetch-btn" id="btn-fetch-zh-single">获取</button>
+                    </div>`;
+                $('btn-fetch-zh-single')?.addEventListener('click', () => fetchZhPdf($('arxiv-input-single')?.value));
+                $('arxiv-input-single')?.addEventListener('keydown', e => { if (e.key === 'Enter') fetchZhPdf($('arxiv-input-single')?.value); });
+            } else {
+                pdfPlaceholder.innerHTML = `<div class="icon">📄</div><div class="text">暂无英文 PDF</div>`;
+            }
+            return;
+        }
+
+        pdfPlaceholder.style.display = 'none';
+        pdfViewer.style.display = '';
+        pdfViewer.src = '/api/pdf/' + lang + '/' + encodePath(path);
+    }
+
+    async function loadPDFCompare(path) {
+        pdfSingleView.classList.remove('active');
+        pdfCompareView.classList.add('active');
+
+        const [hasEn, hasZh] = await Promise.all([
+            checkPdfExists('en', path),
+            checkPdfExists('zh', path),
+        ]);
+
+        if (hasEn) {
+            pdfViewerEn.style.display = '';
+            pdfViewerEn.src = '/api/pdf/en/' + encodePath(path);
+            pdfMissingEn.style.display = 'none';
+        } else {
+            pdfViewerEn.style.display = 'none';
+            pdfViewerEn.removeAttribute('src');
+            pdfMissingEn.style.display = 'flex';
+        }
+
+        if (hasZh) {
+            pdfViewerZh.style.display = '';
+            pdfViewerZh.src = '/api/pdf/zh/' + encodePath(path);
+            pdfMissingZh.style.display = 'none';
+        } else {
+            pdfViewerZh.style.display = 'none';
+            pdfViewerZh.removeAttribute('src');
+            pdfMissingZh.style.display = 'flex';
+        }
+    }
+
+    function loadPDFByMode(path) {
+        if (state.pdfMode === 'compare') {
+            loadPDFCompare(path);
+            return;
+        }
+        const lang = state.pdfMode === 'zh' ? 'zh' : 'en';
+        loadPDFSingle(path, lang);
+    }
+
+    // ==================== Note ====================
+    /** 更新笔记工具栏按钮的可见性 */
+    function updateNoteButtons(hasNote) {
+        if (state.generatingNote) {
+            btnEdit.style.display = 'none';
+            btnGenerateNote.style.display = 'none';
+            btnDeleteNote.style.display = 'none';
+            btnSave.style.display = 'none';
+            btnCancel.style.display = 'none';
+            return;
+        }
+        if (state.isEditing) return; // editing mode manages its own buttons
+        btnEdit.style.display = '';  // 始终可用：无笔记时可手写创建
+        btnDeleteNote.style.display = hasNote ? '' : 'none';
+        btnGenerateNote.style.display = hasNote ? 'none' : '';
+        btnSave.style.display = 'none';
+        btnCancel.style.display = 'none';
+    }
+
+    async function loadNote(stem) {
+        exitEditMode();
+        noteView.innerHTML = '<div class="empty-state"><div class="text">加载中…</div></div>';
+        noteStatus.textContent = '';
+
+        try {
+            const resp = await fetch('/api/note/' + encodePath(stem));
+            const data = await resp.json();
+            state.originalNoteContent = data.content || '';
+
+            if (data.content) {
+                noteView.innerHTML = renderMarkdown(data.content);
+                highlightCodeBlocks(noteView);
+            } else {
+                noteView.innerHTML = '<div class="empty-state"><div class="icon">📝</div><div class="text">暂无笔记</div><div class="sub">点击 🤖 生成笔记 或 ✏️ 编辑 手动撰写</div></div>';
+            }
+            noteStatus.textContent = data.exists ? '' : '';
+            updateNoteButtons(!!data.content);
+        } catch (e) {
+            noteView.innerHTML = '<div class="empty-state" style="color:#ef4444"><div class="text">加载笔记失败</div></div>';
+        }
+    }
+
+    function enterEditMode() {
+        state.isEditing = true;
+        noteView.style.display = 'none';
+        noteEditorWrap.style.display = 'flex';
+        noteEditor.value = state.originalNoteContent;
+        btnEdit.style.display = 'none';
+        btnGenerateNote.style.display = 'none';
+        btnDeleteNote.style.display = 'none';
+        btnSave.style.display = '';
+        btnCancel.style.display = '';
+        noteStatus.textContent = '';
+        noteEditor.focus();
+    }
+
+    function exitEditMode() {
+        state.isEditing = false;
+        state.noteModified = false;
+        noteView.style.display = '';
+        noteEditorWrap.style.display = 'none';
+        btnSave.style.display = 'none';
+        btnCancel.style.display = 'none';
+        if (state.currentPaper) {
+            updateNoteButtons(state.currentPaper.hasNote);
+        }
+    }
+
+    async function saveNote() {
+        if (!state.currentPaper) return;
+        const content = noteEditor.value;
+        noteStatus.textContent = '保存中…';
+        btnSave.disabled = true;
+
+        try {
+            const resp = await fetch('/api/note/' + encodePath(state.currentPaper.stem), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content }),
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                state.originalNoteContent = content;
+                state.noteModified = false;
+                noteView.innerHTML = renderMarkdown(content);
+                highlightCodeBlocks(noteView);
+                exitEditMode();
+                notify('笔记已保存', 'success');
+
+                // Update tree badge if note is new
+                if (!state.currentPaper.hasNote && content.trim()) {
+                    state.currentPaper.hasNote = true;
+                    addTreeBadge(state.currentPaper.stem, 'note');
+                }
+            } else {
+                noteStatus.textContent = '保存失败';
+                notify('保存失败: ' + (data.error || ''), 'error');
+            }
+        } catch (e) {
+            noteStatus.textContent = '网络错误';
+            notify('保存失败: 网络错误', 'error');
+        } finally {
+            btnSave.disabled = false;
+        }
+    }
+
+    // ==================== Image ====================
+    /** 更新插图操作按钮的可见性 */
+    function updateImageButtons(hasImage) {
+        if (state.generatingImage) {
+            btnGenerateImage.style.display = 'none';
+            btnTranslateImage.style.display = 'none';
+            btnDeleteImage.style.display = 'none';
+            btnGenImageBig.style.display = 'none';
+            return;
+        }
+        btnDeleteImage.style.display = hasImage ? '' : 'none';
+        btnGenerateImage.style.display = hasImage ? 'none' : '';
+        btnGenImageBig.style.display = 'none'; // big button shown separately by loadImage
+        // Show translate button when EN image exists but ZH doesn't
+        const paper = state.currentPaper;
+        const showTranslate = paper && paper.hasImageEn && !paper.hasImageZh;
+        btnTranslateImage.style.display = showTranslate ? '' : 'none';
+    }
+
+    function loadImage(stem, lang) {
+        paperImage.style.display = 'none';
+        paperImage.classList.remove('zoomed');
+        imageGenerating.style.display = 'none';
+        imagePlaceholder.style.display = '';
+        imagePlaceholder.querySelector('.text').textContent = '加载中…';
+        const iconEl = imagePlaceholder.querySelector('.icon');
+        if (iconEl) iconEl.style.display = '';
+        btnGenImageBig.style.display = 'none';
+        imageZoomInfo.textContent = '';
+
+        const img = new Image();
+        img.onload = () => {
+            paperImage.src = img.src;
+            paperImage.style.display = '';
+            imagePlaceholder.style.display = 'none';
+            imageZoomInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+            updateImageButtons(true);
+        };
+        img.onerror = () => {
+            imagePlaceholder.querySelector('.text').textContent = `暂无${lang === 'zh' ? '中文' : '英文'}版插图`;
+            if (iconEl) iconEl.style.display = '';
+            // Show the big generate button inside placeholder
+            btnGenImageBig.style.display = '';
+            updateImageButtons(false);
+        };
+        img.src = '/api/image/' + lang + '/' + encodePath(stem);
+    }
+
+    // ==================== AI 生成 & 删除 ====================
+
+    /** 使用 SSE 流式生成笔记 */
+    async function generateNote() {
+        if (!state.currentPaper || state.generatingNote) return;
+        state.generatingNote = true;
+        updateNoteButtons(false);
+        noteStatus.textContent = '⏳ 正在生成…';
+        noteView.innerHTML = '<div class="note-generating-bar"><div class="spinner"></div>AI 正在生成笔记，请稍候…</div><div class="markdown-body" id="note-stream-target" style="padding:18px 20px;"></div>';
+
+        const target = $('note-stream-target');
+        let fullText = '';
+
+        try {
+            const resp = await fetch('/api/generate-note/' + encodePath(state.currentPaper.stem), { method: 'POST' });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.error || '生成失败');
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                // Parse SSE events from buffer
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete line
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        if (data.type === 'chunk') {
+                            fullText += data.text;
+                            target.innerHTML = renderMarkdown(fullText);
+                            highlightCodeBlocks(target);
+                            // Auto-scroll to bottom
+                            noteView.scrollTop = noteView.scrollHeight;
+                        } else if (data.type === 'error') {
+                            throw new Error(data.message);
+                        }
+                    } catch (parseErr) {
+                        if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
+                    }
+                }
+            }
+
+            // Done → render final
+            state.originalNoteContent = fullText;
+            state.currentPaper.hasNote = true;
+            noteView.innerHTML = renderMarkdown(fullText);
+            highlightCodeBlocks(noteView);
+            notify('笔记生成完成', 'success');
+            addTreeBadge(state.currentPaper.stem, 'note');
+        } catch (e) {
+            notify('笔记生成失败: ' + e.message, 'error', 4000);
+            noteView.innerHTML = `<div class="empty-state" style="color:#ef4444"><div class="text">生成失败: ${e.message}</div></div>`;
+        } finally {
+            state.generatingNote = false;
+            noteStatus.textContent = '';
+            updateNoteButtons(state.currentPaper?.hasNote);
+        }
+    }
+
+    /** 删除笔记 */
+    async function deleteNote() {
+        if (!state.currentPaper) return;
+        if (!confirm('确定删除该笔记？此操作不可撤销。')) return;
+
+        try {
+            const resp = await fetch('/api/delete-note/' + encodePath(state.currentPaper.stem), { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || '删除失败');
+
+            state.currentPaper.hasNote = false;
+            state.originalNoteContent = '';
+            noteView.innerHTML = '<div class="empty-state"><div class="icon">📝</div><div class="text">暂无笔记</div><div class="sub">点击 🤖 生成笔记 或 ✏️ 编辑 手动撰写</div></div>';
+            updateNoteButtons(false);
+            removeTreeBadge(state.currentPaper.stem, 'note');
+            notify('笔记已删除', 'success');
+        } catch (e) {
+            notify('删除失败: ' + e.message, 'error');
+        }
+    }
+
+    /** 生成插图 */
+    async function generateImage() {
+        if (!state.currentPaper || state.generatingImage) return;
+        state.generatingImage = true;
+        updateImageButtons(false);
+        imagePlaceholder.style.display = 'none';
+        paperImage.style.display = 'none';
+        imageGenerating.style.display = '';
+
+        try {
+            const resp = await fetch('/api/generate-image/' + encodePath(state.currentPaper.stem), { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || '生成失败');
+
+            state.currentPaper.hasImageEn = true;
+            notify('插图生成完成', 'success');
+            addTreeBadge(state.currentPaper.stem, 'img');
+            // Reload image (switch to EN to show the newly generated one)
+            state.imageLang = 'en';
+            document.querySelectorAll('#image-toolbar .lang-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.lang === 'en');
+            });
+            loadImage(state.currentPaper.stem, 'en');
+        } catch (e) {
+            notify('插图生成失败: ' + e.message, 'error', 4000);
+            imagePlaceholder.style.display = '';
+            imagePlaceholder.querySelector('.text').textContent = '生成失败: ' + e.message;
+            btnGenImageBig.style.display = '';
+        } finally {
+            state.generatingImage = false;
+            imageGenerating.style.display = 'none';
+        }
+    }
+
+    /** 翻译插图（英文→中文） */
+    async function translateImage() {
+        if (!state.currentPaper || state.generatingImage) return;
+        if (!state.currentPaper.hasImageEn) {
+            notify('请先生成英文插图', 'error');
+            return;
+        }
+        state.generatingImage = true;
+        updateImageButtons(false);
+        imagePlaceholder.style.display = 'none';
+        paperImage.style.display = 'none';
+        imageGenerating.style.display = '';
+        imageGenerating.querySelector('.text').textContent = '正在翻译插图为中文版…';
+
+        try {
+            const resp = await fetch('/api/translate-image/' + encodePath(state.currentPaper.stem), { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || '翻译失败');
+
+            state.currentPaper.hasImageZh = true;
+            notify('插图翻译完成', 'success');
+            // Switch to ZH to show the result
+            state.imageLang = 'zh';
+            document.querySelectorAll('#image-toolbar .lang-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.lang === 'zh');
+            });
+            loadImage(state.currentPaper.stem, 'zh');
+        } catch (e) {
+            notify('插图翻译失败: ' + e.message, 'error', 4000);
+            // Restore current view
+            loadImage(state.currentPaper.stem, state.imageLang);
+        } finally {
+            state.generatingImage = false;
+            imageGenerating.style.display = 'none';
+            imageGenerating.querySelector('.text').textContent = '正在生成插图，请稍候…';
+        }
+    }
+
+    /** 删除插图（所有语言版本） */
+    async function deleteImage() {
+        if (!state.currentPaper) return;
+        if (!confirm('确定删除该插图（包括所有语言版本）？此操作不可撤销。')) return;
+
+        try {
+            const resp = await fetch('/api/delete-image/' + encodePath(state.currentPaper.stem), { method: 'POST' });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || '删除失败');
+
+            state.currentPaper.hasImageEn = false;
+            state.currentPaper.hasImageZh = false;
+            paperImage.style.display = 'none';
+            imagePlaceholder.style.display = '';
+            imagePlaceholder.querySelector('.text').textContent = '插图已删除';
+            const iconEl = imagePlaceholder.querySelector('.icon');
+            if (iconEl) iconEl.style.display = '';
+            btnGenImageBig.style.display = '';
+            imageZoomInfo.textContent = '';
+            updateImageButtons(false);
+            removeTreeBadge(state.currentPaper.stem, 'img');
+            notify('插图已删除（' + data.deleted.length + ' 个文件）', 'success');
+        } catch (e) {
+            notify('删除失败: ' + e.message, 'error');
+        }
+    }
+
+    // ==================== Tree Badge 联动 ====================
+    function addTreeBadge(stem, type) {
+        treeContainer.querySelectorAll('[data-stem]').forEach(lbl => {
+            if (lbl.dataset.stem !== stem) return;
+            const badges = lbl.querySelector('.tree-badges');
+            if (!badges) return;
+            const cls = type === 'note' ? 'badge-note' : 'badge-img';
+            if (badges.querySelector('.' + cls)) return;
+            const b = document.createElement('span');
+            b.className = 'badge ' + cls;
+            b.textContent = type === 'note' ? 'N' : 'I';
+            b.title = type === 'note' ? '有笔记' : '有插图';
+            badges.appendChild(b);
+        });
+    }
+
+    function removeTreeBadge(stem, type) {
+        treeContainer.querySelectorAll('[data-stem]').forEach(lbl => {
+            if (lbl.dataset.stem !== stem) return;
+            const badges = lbl.querySelector('.tree-badges');
+            if (!badges) return;
+            const cls = type === 'note' ? 'badge-note' : 'badge-img';
+            const badge = badges.querySelector('.' + cls);
+            if (badge) badge.remove();
+        });
+    }
+
+    // ==================== arXiv 中文翻译获取 ====================
+    async function fetchZhPdf(arxivId) {
+        if (!state.currentPaper || !arxivId || !arxivId.trim()) {
+            notify('请输入 arXiv ID 或链接', 'error');
+            return;
+        }
+
+        // Disable all fetch buttons during request
+        document.querySelectorAll('.arxiv-fetch-btn').forEach(b => { b.disabled = true; b.textContent = '获取中…'; });
+
+        try {
+            const resp = await fetch('/api/fetch-zh-pdf/' + encodePath(state.currentPaper.stem), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ arxiv_id: arxivId.trim() }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || '获取失败');
+
+            state.currentPaper.hasPdfZh = true;
+            notify('中文 PDF 下载成功', 'success');
+
+            // Reload current PDF view to show the new Chinese PDF
+            if (state.pdfMode === 'zh') {
+                loadPDFSingle(state.currentPaper.path, 'zh');
+            } else if (state.pdfMode === 'compare') {
+                loadPDFCompare(state.currentPaper.path);
+            }
+        } catch (e) {
+            notify('获取失败: ' + e.message, 'error', 4000);
+        } finally {
+            document.querySelectorAll('.arxiv-fetch-btn').forEach(b => { b.disabled = false; b.textContent = '获取'; });
+        }
+    }
+
+    // ==================== Context Menu ====================
+    const ctxMenu = $('ctx-menu');
+
+    function showContextMenu(x, y) {
+        ctxMenu.style.left = x + 'px';
+        ctxMenu.style.top = y + 'px';
+        ctxMenu.classList.add('show');
+    }
+
+    function hideContextMenu() {
+        ctxMenu.classList.remove('show');
+        state.ctxTarget = null;
+    }
+
+    document.addEventListener('click', e => {
+        if (!e.target.closest('#ctx-menu')) hideContextMenu();
+    });
+    document.addEventListener('contextmenu', e => {
+        if (!e.target.closest('.tree-label[data-stem]')) hideContextMenu();
+    });
+
+    $('ctx-move').addEventListener('click', () => {
+        const target = state.ctxTarget;
+        if (!target) return;
+        hideContextMenu();
+        openMoveModal(target);
+    });
+
+    // ==================== Import Paper ====================
+    const importModal = $('import-modal');
+    const importForm = $('import-form');
+    const importProgress = $('import-progress');
+    const importDoneActions = $('import-done-actions');
+    const importArxivInput = $('import-arxiv-input');
+
+    // ── Reusable hierarchical folder browser ──
+    // browserId: { currentPath, listEl, breadcrumbEl }
+    const folderBrowsers = {};
+
+    function initFolderBrowser(id, listElId, breadcrumbElId) {
+        folderBrowsers[id] = {
+            currentPath: '',
+            listEl: $(listElId),
+            breadcrumbEl: $(breadcrumbElId),
+        };
+    }
+    initFolderBrowser('import', 'import-folder-list', 'import-breadcrumb');
+    initFolderBrowser('move', 'move-folder-list', 'move-breadcrumb');
+
+    function renderBreadcrumb(id) {
+        const fb = folderBrowsers[id];
+        const bc = fb.breadcrumbEl;
+        bc.innerHTML = '';
+        const parts = fb.currentPath ? fb.currentPath.split('/') : [];
+
+        // Root
+        const root = document.createElement('span');
+        root.className = 'bc-item' + (parts.length === 0 ? ' bc-current' : '');
+        root.textContent = '📂 根目录';
+        if (parts.length > 0) {
+            root.addEventListener('click', () => { fb.currentPath = ''; navigateFolderBrowser(id); });
+        }
+        bc.appendChild(root);
+
+        // Each level
+        let accumulated = '';
+        parts.forEach((seg, i) => {
+            accumulated += (i > 0 ? '/' : '') + seg;
+            const sep = document.createElement('span');
+            sep.className = 'bc-sep';
+            sep.textContent = ' ▸ ';
+            bc.appendChild(sep);
+
+            const isLast = i === parts.length - 1;
+            const item = document.createElement('span');
+            item.className = 'bc-item' + (isLast ? ' bc-current' : '');
+            item.textContent = seg;
+            if (!isLast) {
+                const target = accumulated;
+                item.addEventListener('click', () => { fb.currentPath = target; navigateFolderBrowser(id); });
+            }
+            bc.appendChild(item);
+        });
+    }
+
+    async function navigateFolderBrowser(id, excludeFolder) {
+        const fb = folderBrowsers[id];
+        renderBreadcrumb(id);
+        fb.listEl.innerHTML = '<div class="folder-empty">加载中…</div>';
+
+        try {
+            const resp = await fetch('/api/folders?parent=' + encodeURIComponent(fb.currentPath));
+            const children = await resp.json();
+
+            fb.listEl.innerHTML = '';
+            // Filter out the folder the paper is currently in (for move)
+            const filtered = excludeFolder !== undefined
+                ? children.filter(c => c.path !== excludeFolder)
+                : children;
+
+            if (filtered.length === 0) {
+                fb.listEl.innerHTML = '<div class="folder-empty">当前目录下没有子文件夹</div>';
+                return;
+            }
+
+            filtered.forEach(child => {
+                const item = document.createElement('div');
+                item.className = 'folder-item';
+                item.innerHTML = `<span class="folder-icon">📁</span> ${child.name}`;
+                if (child.hasChildren) {
+                    item.innerHTML += '<span class="folder-arrow">▸</span>';
+                }
+                item.addEventListener('click', () => {
+                    fb.currentPath = child.path;
+                    navigateFolderBrowser(id, excludeFolder);
+                });
+                fb.listEl.appendChild(item);
+            });
+        } catch (e) {
+            fb.listEl.innerHTML = '<div class="folder-empty" style="color:#f38ba8">加载失败</div>';
+        }
+    }
+
+    function openImportModal() {
+        state.importing = false;
+        importForm.style.display = '';
+        importProgress.innerHTML = '';
+        importProgress.classList.remove('active');
+        importDoneActions.style.display = 'none';
+        importArxivInput.value = '';
+        folderBrowsers.import.currentPath = '';
+        navigateFolderBrowser('import');
+        importModal.classList.add('show');
+        setTimeout(() => importArxivInput.focus(), 100);
+    }
+
+    function closeImportModal() {
+        importModal.classList.remove('show');
+    }
+
+    const STEP_LABELS = {
+        title: '获取论文信息',
+        pdf_en: '下载原文 PDF',
+        pdf_zh: '获取中文翻译 PDF',
+        note: '生成笔记',
+        image: '生成插图',
+        finish: '导入完成',
+    };
+    const STEP_ICONS = {
+        working: '<div class="step-spinner"></div>',
+        done: '✅',
+        warn: '⚠️',
+        error: '❌',
+        skip: '⏭️',
+    };
+
+    function upsertImportStep(step, status, msg) {
+        let el = importProgress.querySelector(`[data-step="${step}"]`);
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'import-step';
+            el.dataset.step = step;
+            importProgress.appendChild(el);
+        }
+        el.className = 'import-step ' + status;
+        el.innerHTML = `<span class="step-icon">${STEP_ICONS[status] || '⏳'}</span><span>${msg || STEP_LABELS[step] || step}</span>`;
+    }
+
+    async function startImport() {
+        const arxivId = importArxivInput.value.trim();
+        if (!arxivId) { notify('请输入 arXiv ID', 'error'); return; }
+
+        state.importing = true;
+        importForm.style.display = 'none';
+        importProgress.innerHTML = '';
+        importProgress.classList.add('active');
+        importDoneActions.style.display = 'none';
+
+        let importedStem = null;
+
+        try {
+            const resp = await fetch('/api/import-paper', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ arxiv_id: arxivId, folder: folderBrowsers.import.currentPath }),
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.error || '导入失败');
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        upsertImportStep(data.step, data.status, data.msg);
+                        if (data.stem) importedStem = data.stem;
+                    } catch (_) {}
+                }
+            }
+
+            notify('论文导入完成！', 'success');
+        } catch (e) {
+            upsertImportStep('finish', 'error', '导入失败: ' + e.message);
+            notify('导入失败: ' + e.message, 'error', 4000);
+        } finally {
+            state.importing = false;
+            importDoneActions.style.display = 'flex';
+        }
+
+        // Reload tree and optionally select the imported paper
+        await loadTree();
+        if (importedStem) {
+            // Find in tree and select
+            const lbl = treeContainer.querySelector(`[data-stem="${CSS.escape(importedStem)}"]`);
+            if (lbl) {
+                // find corresponding node in treeData
+                const node = findNodeByStem(state.treeData, importedStem);
+                if (node) selectPaper(node, lbl);
+            }
+        }
+    }
+
+    function findNodeByStem(tree, stem) {
+        if (!tree) return null;
+        if (tree.type === 'file' && tree.stem === stem) return tree;
+        if (tree.children) {
+            for (const child of tree.children) {
+                const found = findNodeByStem(child, stem);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    $('btn-import-paper').addEventListener('click', openImportModal);
+    $('import-cancel-btn').addEventListener('click', closeImportModal);
+    $('import-start-btn').addEventListener('click', startImport);
+    $('import-close-btn').addEventListener('click', closeImportModal);
+    importArxivInput.addEventListener('keydown', e => { if (e.key === 'Enter') startImport(); });
+    importModal.addEventListener('click', e => { if (e.target === importModal && !state.importing) closeImportModal(); });
+
+    // ==================== Move Paper ====================
+    const moveModal = $('move-modal');
+    const movePaperName = $('move-paper-name');
+
+    async function openMoveModal(paper) {
+        state.moveTargetStem = paper.stem;
+        movePaperName.textContent = '📄 ' + paper.name;
+
+        // Start browsing from root, exclude current folder
+        folderBrowsers.move.currentPath = '';
+        const curFolder = paper.stem.includes('/') ? paper.stem.substring(0, paper.stem.lastIndexOf('/')) : null;
+        navigateFolderBrowser('move', curFolder);
+
+        moveModal.classList.add('show');
+    }
+
+    function closeMoveModal() {
+        moveModal.classList.remove('show');
+        state.moveTargetStem = null;
+    }
+
+    async function confirmMove() {
+        const destFolder = folderBrowsers.move.currentPath;
+        const curFolder = state.moveTargetStem.includes('/') ? state.moveTargetStem.substring(0, state.moveTargetStem.lastIndexOf('/')) : '';
+        if (destFolder === curFolder) {
+            notify('目标与当前位置相同', 'error');
+            return;
+        }
+        const btn = $('move-confirm-btn');
+        btn.disabled = true;
+        btn.textContent = '移动中…';
+
+        try {
+            const resp = await fetch('/api/move-paper', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stem: state.moveTargetStem, dest_folder: destFolder }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || '移动失败');
+
+            closeMoveModal();
+            notify('论文已移动', 'success');
+
+            // Reload tree
+            const newStem = data.new_stem;
+            await loadTree();
+
+            // If we moved the currently selected paper, update selection
+            if (state.currentPaper && state.currentPaper.stem === state.moveTargetStem) {
+                const lbl = treeContainer.querySelector(`[data-stem="${CSS.escape(newStem)}"]`);
+                if (lbl) {
+                    const node = findNodeByStem(state.treeData, newStem);
+                    if (node) selectPaper(node, lbl);
+                }
+            }
+        } catch (e) {
+            notify('移动失败: ' + e.message, 'error', 4000);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '移动';
+        }
+    }
+
+    $('move-cancel-btn').addEventListener('click', closeMoveModal);
+    $('move-confirm-btn').addEventListener('click', confirmMove);
+    moveModal.addEventListener('click', e => { if (e.target === moveModal) closeMoveModal(); });
+
+    // ==================== Event Bindings ====================
+
+    // -- Search --
+    let _searchTimer;
+    searchInput.addEventListener('input', () => {
+        clearTimeout(_searchTimer);
+        _searchTimer = setTimeout(() => buildTree(searchInput.value.trim()), 200);
+    });
+
+    // -- Right panel tabs --
+    document.querySelectorAll('.right-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.right-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.right-pane').forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            $(tab.dataset.tab + '-pane').classList.add('active');
+        });
+    });
+
+    // -- Note editing --
+    btnEdit.addEventListener('click', () => { if (state.currentPaper) enterEditMode(); });
+    btnSave.addEventListener('click', saveNote);
+    btnCancel.addEventListener('click', () => {
+        if (state.noteModified && !confirm('放弃未保存的更改？')) return;
+        exitEditMode();
+    });
+
+    // -- Note generate / delete --
+    btnGenerateNote.addEventListener('click', generateNote);
+    btnDeleteNote.addEventListener('click', deleteNote);
+
+    // -- Image generate / translate / delete --
+    btnGenerateImage.addEventListener('click', generateImage);
+    btnGenImageBig.addEventListener('click', generateImage);
+    btnTranslateImage.addEventListener('click', translateImage);
+    btnDeleteImage.addEventListener('click', deleteImage);
+
+    // -- arXiv fetch (compare mode) --
+    $('btn-fetch-zh-compare').addEventListener('click', () => fetchZhPdf($('arxiv-input-compare')?.value));
+    $('arxiv-input-compare').addEventListener('keydown', e => { if (e.key === 'Enter') fetchZhPdf($('arxiv-input-compare')?.value); });
+
+    noteEditor.addEventListener('input', () => {
+        state.noteModified = noteEditor.value !== state.originalNoteContent;
+        noteStatus.textContent = state.noteModified ? '● 未保存' : '';
+    });
+
+    // Tab key in editor -> insert 4 spaces
+    noteEditor.addEventListener('keydown', e => {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const s = noteEditor.selectionStart, end = noteEditor.selectionEnd;
+            noteEditor.value = noteEditor.value.substring(0, s) + '    ' + noteEditor.value.substring(end);
+            noteEditor.selectionStart = noteEditor.selectionEnd = s + 4;
+            noteEditor.dispatchEvent(new Event('input'));
+        }
+    });
+
+    // -- Keyboard shortcuts --
+    document.addEventListener('keydown', e => {
+        if (e.ctrlKey && e.key === 's') {
+            e.preventDefault();
+            if (state.isEditing) saveNote();
+        }
+        if (e.key === 'Escape' && lightbox.classList.contains('show')) {
+            closeLightbox();
+        }
+    });
+
+    // -- Image language toggle --
+    document.querySelectorAll('#image-toolbar .lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#image-toolbar .lang-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.imageLang = btn.dataset.lang;
+            if (state.currentPaper) loadImage(state.currentPaper.stem, state.imageLang);
+        });
+    });
+
+    // -- Image zoom → open lightbox --
+    paperImage.addEventListener('click', () => { openLightbox(); });
+
+    // -- Toggle sidebar --
+    $('btn-toggle-sidebar').addEventListener('click', () => {
+        if (state.pdfMode === 'compare') return;
+        setSidebarCollapsed(!state.sidebarCollapsed);
+    });
+
+    // -- Toggle right panel --
+    $('btn-toggle-right').addEventListener('click', () => {
+        if (state.pdfMode === 'compare') return;
+        setRightPanelCollapsed(!state.rightCollapsed);
+    });
+
+    // -- PDF mode switch --
+    document.querySelectorAll('.pdf-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const nextMode = btn.dataset.pdfMode;
+            if (state.pdfMode === nextMode) return;
+            state.pdfMode = nextMode;
+            updatePdfModeButtons();
+            applyPdfModeLayout();
+            if (state.currentPaper) {
+                loadPDFByMode(state.currentPaper.path);
+            }
+        });
+    });
+
+    // ==================== Resize Handles ====================
+    function setupResize(handleEl, targetEl, side) {
+        handleEl.addEventListener('mousedown', e => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startW = targetEl.offsetWidth;
+            const minW = parseInt(getComputedStyle(targetEl).minWidth) || 200;
+            const maxW = parseInt(getComputedStyle(targetEl).maxWidth) || 900;
+            handleEl.classList.add('active');
+            document.body.classList.add('resizing');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+
+            let rafId = 0;
+            const onMove = ev => {
+                cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(() => {
+                    const dx = side === 'left' ? (ev.clientX - startX) : (startX - ev.clientX);
+                    targetEl.style.width = Math.max(minW, Math.min(maxW, startW + dx)) + 'px';
+                });
+            };
+            const onUp = () => {
+                cancelAnimationFrame(rafId);
+                handleEl.classList.remove('active');
+                document.body.classList.remove('resizing');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    }
+
+    setupResize($('sidebar-resize'), $('sidebar'), 'left');
+    setupResize($('right-resize'), $('right-panel'), 'right');
+
+    // ==================== Lightbox ====================
+    function openLightbox() {
+        if (!state.currentPaper) return;
+        const src = '/api/image/' + state.imageLang + '/' + encodePath(state.currentPaper.stem);
+        lightboxImg.src = src;
+        lightboxImg.classList.remove('lb-zoomed');
+        lightboxImgWrap.scrollTo(0, 0);
+        lightbox.classList.add('show');
+        // sync lang buttons
+        document.querySelectorAll('.lb-lang').forEach(b => {
+            b.classList.toggle('active', b.dataset.lang === state.imageLang);
+        });
+        const img = new Image();
+        img.onload = () => { lightboxInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`; };
+        img.src = src;
+    }
+
+    function closeLightbox() {
+        lightbox.classList.remove('show');
+        lightboxImg.classList.remove('lb-zoomed');
+    }
+
+    // Close on background click
+    lightbox.addEventListener('click', e => {
+        if (e.target === lightbox || e.target === lightboxImgWrap) closeLightbox();
+    });
+    $('lightbox-close').addEventListener('click', closeLightbox);
+
+    // Lightbox image click to toggle zoom
+    lightboxImg.addEventListener('click', e => {
+        e.stopPropagation();
+        lightboxImg.classList.toggle('lb-zoomed');
+    });
+
+    // Lightbox lang toggle
+    document.querySelectorAll('.lb-lang').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            document.querySelectorAll('.lb-lang').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.imageLang = btn.dataset.lang;
+            // Also sync the panel lang buttons
+            document.querySelectorAll('#image-toolbar .lang-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.lang === state.imageLang);
+            });
+            if (state.currentPaper) {
+                loadImage(state.currentPaper.stem, state.imageLang);
+                lightboxImg.src = '/api/image/' + state.imageLang + '/' + encodePath(state.currentPaper.stem);
+                const img2 = new Image();
+                img2.onload = () => { lightboxInfo.textContent = `${img2.naturalWidth} × ${img2.naturalHeight}`; };
+                img2.src = lightboxImg.src;
+            }
+        });
+    });
+
+    // Lightbox drag-to-pan when zoomed
+    let _lbDrag = false, _lbStartX, _lbStartY, _lbScrollX, _lbScrollY;
+    lightboxImg.addEventListener('mousedown', e => {
+        if (!lightboxImg.classList.contains('lb-zoomed')) return;
+        _lbDrag = true; _lbStartX = e.clientX; _lbStartY = e.clientY;
+        _lbScrollX = lightboxImgWrap.scrollLeft; _lbScrollY = lightboxImgWrap.scrollTop;
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+        if (!_lbDrag) return;
+        lightboxImgWrap.scrollLeft = _lbScrollX - (e.clientX - _lbStartX);
+        lightboxImgWrap.scrollTop = _lbScrollY - (e.clientY - _lbStartY);
+    });
+    document.addEventListener('mouseup', () => { _lbDrag = false; });
+
+    // ==================== Init ====================
+    updatePdfModeButtons();
+    applyPdfModeLayout();
+    loadTree();
+})();
+</script>
+</body>
+</html>

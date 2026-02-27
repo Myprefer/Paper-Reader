@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>文件传输</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f0f2f5;
+      color: #333;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #4f8ef7, #7c4dff);
+      color: #fff;
+      padding: 18px 32px;
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+
+    .container { max-width: 860px; margin: 36px auto; padding: 0 16px; }
+
+    /* ── 上传卡片 ── */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      padding: 28px 32px;
+      margin-bottom: 28px;
+    }
+    .card h2 { font-size: 1.05rem; margin-bottom: 18px; color: #555; }
+
+    /* 拖拽区域 */
+    #drop-zone {
+      border: 2px dashed #c0c8e0;
+      border-radius: 10px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      color: #8a95b0;
+      position: relative;
+    }
+    #drop-zone.drag-over { border-color: #4f8ef7; background: #f0f5ff; }
+    #drop-zone svg { margin-bottom: 10px; }
+    #drop-zone p { font-size: .95rem; }
+    #drop-zone span { color: #4f8ef7; text-decoration: underline; cursor: pointer; }
+    #file-input { display: none; }
+
+    /* 已选文件列表 */
+    #selected-list { margin-top: 14px; display: none; }
+    #selected-list .file-tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f0f5ff; border: 1px solid #c5d8ff;
+      border-radius: 20px; padding: 4px 12px; margin: 4px 4px 0 0;
+      font-size: .85rem; color: #4f8ef7;
+    }
+    #selected-list .file-tag .rm {
+      cursor: pointer; font-size: 1rem; line-height: 1; color: #a0aec0;
+    }
+    #selected-list .file-tag .rm:hover { color: #e53e3e; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 22px; border: none; border-radius: 8px;
+      font-size: .92rem; font-weight: 500; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-primary { background: #4f8ef7; color: #fff; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-primary:disabled { background: #a0c0f8; cursor: not-allowed; }
+
+    #upload-btn { margin-top: 16px; }
+
+    /* 进度条 */
+    #progress-wrap { display: none; margin-top: 14px; }
+    #progress-bar-bg {
+      background: #e8edf5; border-radius: 999px; height: 8px; overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%; width: 0%; background: linear-gradient(90deg,#4f8ef7,#7c4dff);
+      border-radius: 999px; transition: width .2s;
+    }
+    #progress-label { font-size: .82rem; color: #8a95b0; margin-top: 5px; text-align: right; }
+
+    /* 通知条 */
+    #toast {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: #323a52; color: #fff; padding: 10px 22px; border-radius: 8px;
+      font-size: .9rem; opacity: 0; pointer-events: none;
+      transition: opacity .3s;
+      z-index: 9999;
+    }
+    #toast.show { opacity: 1; }
+    #toast.success { background: #38a169; }
+    #toast.error { background: #e53e3e; }
+
+    /* ── 文件列表 ── */
+    #file-list-wrap {}
+    .file-list-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 14px;
+    }
+    .file-list-header h2 { font-size: 1.05rem; color: #555; }
+    .btn-refresh {
+      background: none; border: 1px solid #c0c8e0; color: #666;
+      padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: .85rem;
+    }
+    .btn-refresh:hover { background: #f0f2f5; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th {
+      background: #f7f9fc; text-align: left; padding: 10px 14px;
+      border-bottom: 2px solid #e8edf5; color: #888; font-weight: 600;
+    }
+    td { padding: 11px 14px; border-bottom: 1px solid #f0f2f5; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f7faff; }
+
+    .file-name { font-weight: 500; word-break: break-all; }
+    .file-size { color: #8a95b0; white-space: nowrap; }
+
+    .action-btns { display: flex; gap: 8px; }
+    .btn-dl {
+      padding: 5px 14px; border-radius: 6px; font-size: .83rem; cursor: pointer;
+      border: 1px solid #4f8ef7; background: #fff; color: #4f8ef7;
+      transition: background .15s, color .15s;
+    }
+    .btn-dl:hover { background: #4f8ef7; color: #fff; }
+    .btn-del {
+      padding: 5px 14px; border-radius: 6px; font-size: .83rem; cursor: pointer;
+      border: 1px solid #e53e3e; background: #fff; color: #e53e3e;
+      transition: background .15s, color .15s;
+    }
+    .btn-del:hover { background: #e53e3e; color: #fff; }
+
+    .empty-tip {
+      text-align: center; padding: 40px; color: #b0bac8; font-size: .92rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>📁 文件传输</header>
+
+<div class="container">
+
+  <!-- 上传 -->
+  <div class="card">
+    <h2>上传文件</h2>
+
+    <div id="drop-zone">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+           stroke="#a0aec0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="16 16 12 12 8 16"></polyline>
+        <line x1="12" y1="12" x2="12" y2="21"></line>
+        <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path>
+      </svg>
+      <p>拖拽文件到此处，或 <span id="browse-btn">点击选择文件</span></p>
+      <p style="font-size:.8rem;margin-top:6px;">支持多文件，单文件最大 2 GB</p>
+      <input type="file" id="file-input" multiple />
+    </div>
+
+    <div id="selected-list"></div>
+    <button class="btn btn-primary" id="upload-btn" disabled>上传</button>
+
+    <div id="progress-wrap">
+      <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+      <div id="progress-label">0%</div>
+    </div>
+  </div>
+
+  <!-- 文件列表 -->
+  <div class="card" id="file-list-wrap">
+    <div class="file-list-header">
+      <h2>已有文件</h2>
+      <button class="btn-refresh" onclick="loadFiles()">刷新</button>
+    </div>
+    <div id="file-table-container">
+      <div class="empty-tip">加载中…</div>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── 工具 ──
+  function showToast(msg, type = "info") {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = "show " + type;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.className = ""; }, 2800);
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 ** 2) return (bytes / 1024).toFixed(1) + " KB";
+    if (bytes < 1024 ** 3) return (bytes / 1024 ** 2).toFixed(2) + " MB";
+    return (bytes / 1024 ** 3).toFixed(2) + " GB";
+  }
+
+  // ── 文件选择 ──
+  let selectedFiles = [];
+
+  const dropZone   = document.getElementById("drop-zone");
+  const fileInput  = document.getElementById("file-input");
+  const browseBtn  = document.getElementById("browse-btn");
+  const selectedList = document.getElementById("selected-list");
+  const uploadBtn  = document.getElementById("upload-btn");
+
+  browseBtn.addEventListener("click", () => fileInput.click());
+  dropZone.addEventListener("click", (e) => {
+    if (e.target !== browseBtn) fileInput.click();
+  });
+  fileInput.addEventListener("change", () => addFiles(fileInput.files));
+
+  dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropZone.classList.add("drag-over");
+  });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("drag-over");
+    addFiles(e.dataTransfer.files);
+  });
+
+  function addFiles(fileList) {
+    for (const f of fileList) selectedFiles.push(f);
+    renderSelected();
+  }
+
+  function removeFile(idx) {
+    selectedFiles.splice(idx, 1);
+    renderSelected();
+  }
+
+  function renderSelected() {
+    if (selectedFiles.length === 0) {
+      selectedList.style.display = "none";
+      uploadBtn.disabled = true;
+      return;
+    }
+    selectedList.style.display = "block";
+    uploadBtn.disabled = false;
+    selectedList.innerHTML = selectedFiles.map((f, i) =>
+      `<span class="file-tag">
+         ${escHtml(f.name)}
+         <span class="rm" onclick="removeFile(${i})" title="移除">✕</span>
+       </span>`
+    ).join("");
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  // ── 上传 ──
+  uploadBtn.addEventListener("click", async () => {
+    if (selectedFiles.length === 0) return;
+    const fd = new FormData();
+    for (const f of selectedFiles) fd.append("files", f);
+
+    uploadBtn.disabled = true;
+    const progWrap = document.getElementById("progress-wrap");
+    const progBar  = document.getElementById("progress-bar");
+    const progLbl  = document.getElementById("progress-label");
+    progWrap.style.display = "block";
+    progBar.style.width = "0%";
+    progLbl.textContent = "0%";
+
+    try {
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/upload");
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = ((e.loaded / e.total) * 100).toFixed(1);
+            progBar.style.width = pct + "%";
+            progLbl.textContent = pct + "%";
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status === 200) resolve(JSON.parse(xhr.responseText));
+          else reject(new Error(xhr.responseText));
+        };
+        xhr.onerror = () => reject(new Error("网络错误"));
+        xhr.send(fd);
+      }).then((data) => {
+        progBar.style.width = "100%";
+        progLbl.textContent = "100%";
+        const names = data.uploaded.map(u => u.saved).join("、");
+        showToast("✅ 上传成功：" + names, "success");
+        selectedFiles = [];
+        renderSelected();
+        fileInput.value = "";
+        loadFiles();
+      });
+    } catch (err) {
+      showToast("❌ 上传失败：" + err.message, "error");
+    } finally {
+      uploadBtn.disabled = false;
+      setTimeout(() => { progWrap.style.display = "none"; }, 1200);
+    }
+  });
+
+  // ── 文件列表 ──
+  async function loadFiles() {
+    const container = document.getElementById("file-table-container");
+    container.innerHTML = '<div class="empty-tip">加载中…</div>';
+    try {
+      const res = await fetch("/files");
+      const data = await res.json();
+      if (data.files.length === 0) {
+        container.innerHTML = '<div class="empty-tip">暂无文件</div>';
+        return;
+      }
+      container.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>文件名</th>
+              <th>大小</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.files.map((f, i) => `
+              <tr>
+                <td style="color:#b0bac8;width:40px">${i + 1}</td>
+                <td class="file-name">${escHtml(f.name)}</td>
+                <td class="file-size">${formatSize(f.size)}</td>
+                <td>
+                  <div class="action-btns">
+                    <button class="btn-dl" onclick="downloadFile('${escAttr(f.name)}')">下载</button>
+                    <button class="btn-del" onclick="deleteFile('${escAttr(f.name)}')">删除</button>
+                  </div>
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`;
+    } catch {
+      container.innerHTML = '<div class="empty-tip">加载失败，请刷新重试</div>';
+    }
+  }
+
+  function escAttr(s) {
+    return s.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+  }
+
+  function downloadFile(name) {
+    const a = document.createElement("a");
+    a.href = "/download/" + encodeURIComponent(name);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function deleteFile(name) {
+    if (!confirm(`确定要删除 "${name}" 吗？`)) return;
+    try {
+      const res = await fetch("/delete/" + encodeURIComponent(name), { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok) {
+        showToast("🗑 已删除：" + data.deleted, "success");
+        loadFiles();
+      } else {
+        showToast("删除失败：" + data.error, "error");
+      }
+    } catch {
+      showToast("网络错误", "error");
+    }
+  }
+
+  // 初始加载
+  loadFiles();
+</script>
+</body>
+</html>
