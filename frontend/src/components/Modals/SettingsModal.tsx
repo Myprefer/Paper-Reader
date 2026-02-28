@@ -75,7 +75,7 @@ export default function SettingsModal() {
           {status === 'ok' && <span className="settings-status ok">✅ 连接成功</span>}
           {status === 'fail' && <span className="settings-status fail">❌ 连接失败</span>}
         </div>
-
+{/* 
         <div className="settings-info">
           <h4>💡 多设备同步使用说明</h4>
           <ol>
@@ -84,7 +84,7 @@ export default function SettingsModal() {
             <li>填入服务器的 IP 地址和端口（如 <code>http://192.168.1.100:5000</code>）</li>
             <li>测试连接成功后保存即可</li>
           </ol>
-        </div>
+        </div> */}
 
         <div className="modal-actions">
           <button className="modal-btn modal-btn-cancel" onClick={handleClose}>取消</button>
