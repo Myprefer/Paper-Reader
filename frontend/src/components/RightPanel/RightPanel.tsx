@@ -9,8 +9,6 @@ export default function RightPanel() {
   const { rightCollapsed, setRightCollapsed, rightTab, setRightTab } = useStore();
   const isMobile = useIsMobile();
 
-  if (rightCollapsed) return null;
-
   const tabs: { key: RightTab; label: string }[] = [
     { key: 'note', label: '📝' },
     { key: 'image', label: '🖼️' },
@@ -18,13 +16,14 @@ export default function RightPanel() {
   ];
 
   return (
-    <div id="right-panel">
+    <div id="right-panel" className={rightCollapsed ? 'collapsed' : ''}>
       <div id="right-tabs">
         {tabs.map((t) => (
           <button
             key={t.key}
             className={`right-tab${rightTab === t.key ? ' active' : ''}`}
             onClick={() => setRightTab(t.key)}
+            disabled={rightCollapsed}
           >
             {t.label}
           </button>
@@ -34,6 +33,7 @@ export default function RightPanel() {
             className="mobile-close-btn-right"
             onClick={() => setRightCollapsed(true)}
             title="关闭"
+            aria-label="关闭右侧栏"
           >
             ✕
           </button>

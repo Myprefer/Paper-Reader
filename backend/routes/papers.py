@@ -1009,13 +1009,17 @@ def api_extract_alias(paper_id):
             return jsonify({"error": "论文不存在"}), 404
 
         en_pdf = PDF_DIR / paper["pdf_path"]
+        if not en_pdf.exists():
+            return jsonify({"error": "英文 PDF 不存在，无法提取别名"}), 404
+
         alias, alias_full = _extract_alias(en_pdf)
         conn.execute(
             "UPDATE papers SET alias = ?, alias_full = ? WHERE id = ?",
             (alias, alias_full, paper_id),
         )
         conn.commit()
-        return jsonify({"alias": alias, "alias_full": alias_full})
+        status = "ok" if (alias or alias_full) else "empty"
+        return jsonify({"status": status, "alias": alias, "alias_full": alias_full})
     finally:
         conn.close()
 

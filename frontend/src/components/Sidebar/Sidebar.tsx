@@ -238,7 +238,7 @@ function SearchBox() {
       <input
         type="text"
         id="search-input"
-        placeholder="搜索论文名称"
+        placeholder="搜索论文名称 / 别名"
         onChange={handleChange}
       />
     </div>

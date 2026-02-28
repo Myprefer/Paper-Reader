@@ -12,6 +12,19 @@ interface TreeItemProps {
   filter: string;
 }
 
+function normalizeSearchText(value: string | null | undefined): string {
+  return (value || '').toLowerCase();
+}
+
+function matchesPaperFilter(node: PaperNode, filter: string): boolean {
+  const keyword = normalizeSearchText(filter).trim();
+  if (!keyword) return true;
+  const haystack = [node.name, node.alias, node.aliasFullName]
+    .map(normalizeSearchText)
+    .join(' ');
+  return haystack.includes(keyword);
+}
+
 export default function TreeItem({ node, depth, filter }: TreeItemProps) {
   const confirm = useConfirm();
 
@@ -49,9 +62,7 @@ function FileItem({ node, depth, filter, confirm }: FileItemProps) {
   const itemKey = `file:${node.id}`;
   const isRenaming = renamingKey === itemKey;
   const isSelected = selectedItems.has(itemKey);
-
-  const lf = filter.toLowerCase();
-  const filtered = !!(filter && !node.name.toLowerCase().includes(lf));
+  const filtered = !matchesPaperFilter(node, filter);
 
   const isActive = currentPaper?.id === node.id;
 
@@ -262,7 +273,7 @@ function DirItem({ node, depth, filter }: { node: TreeNode; depth: number; filte
     if (!filter) return children;
     return children.filter((child) => {
       if (child.type === 'dir') return true;
-      return child.name.toLowerCase().includes(filter.toLowerCase());
+      return matchesPaperFilter(child as PaperNode, filter);
     });
   }, [children, filter]);
 
@@ -482,7 +493,7 @@ function DirItem({ node, depth, filter }: { node: TreeNode; depth: number; filte
 
 function hasMatchingDescendant(node: TreeNode, filter: string): boolean {
   if (node.type === 'file') {
-    return node.name.toLowerCase().includes(filter.toLowerCase());
+    return matchesPaperFilter(node as PaperNode, filter);
   }
   if (node.children) {
     return node.children.some((child) => hasMatchingDescendant(child, filter));

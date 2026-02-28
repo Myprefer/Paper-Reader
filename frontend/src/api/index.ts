@@ -115,7 +115,7 @@ export async function deletePaper(
 
 export async function extractAlias(
   paperId: number,
-): Promise<{ alias: string | null; alias_full: string | null }> {
+): Promise<{ status: 'ok' | 'empty'; alias: string | null; alias_full: string | null }> {
   const resp = await fetch(`${BASE()}/api/papers/${paperId}/extract-alias`, { method: 'POST' });
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.error || '提取别名失败');

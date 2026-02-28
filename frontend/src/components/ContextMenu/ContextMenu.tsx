@@ -96,8 +96,13 @@ export default function ContextMenu() {
     hideContextMenu();
     notify('正在提取别名…', 'info');
     try {
-      await extractAlias(target.id);
-      notify('别名提取完成', 'success');
+      const result = await extractAlias(target.id);
+      if (result.status === 'ok') {
+        const aliasText = [result.alias, result.alias_full].filter(Boolean).join(' - ');
+        notify(aliasText ? `别名提取完成：${aliasText}` : '别名提取完成', 'success');
+      } else {
+        notify('未检测到可用别名', 'info');
+      }
       refreshTree();
     } catch (e: unknown) {
       notify((e as Error).message, 'error');

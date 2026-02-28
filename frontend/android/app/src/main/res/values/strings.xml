@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Paper Reader</string>
-    <string name="title_activity_main">Paper Reader</string>
-    <string name="package_name">com.paperreader.app</string>
-    <string name="custom_url_scheme">com.paperreader.app</string>
-</resources>
