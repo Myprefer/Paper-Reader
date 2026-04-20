@@ -176,12 +176,18 @@ def api_fetch_zh_pdf(paper_id):
 @bp.route("/api/folders")
 def api_folders():
     """列出 pdfs/ 下指定父目录的直接子文件夹。"""
-    parent = request.args.get("parent", "").strip()
+    parent_raw = request.args.get("parent", "")
+    parent = parent_raw.strip().replace("\\", "/").strip("/")
+    if parent in (".", ".."):
+        parent = ""
+
+    base_dir = PDF_DIR.resolve()
     target = (PDF_DIR / parent).resolve()
     try:
-        target.relative_to(PDF_DIR.resolve())
+        target.relative_to(base_dir)
     except ValueError:
-        abort(403)
+        return jsonify([])
+
     if not target.is_dir():
         return jsonify([])
 
@@ -189,7 +195,7 @@ def api_folders():
     try:
         for entry in sorted(target.iterdir(), key=lambda p: p.name.lower()):
             if entry.is_dir():
-                rel = entry.relative_to(PDF_DIR).as_posix()
+                rel = entry.relative_to(base_dir).as_posix()
                 has_sub = any(e.is_dir() for e in entry.iterdir())
                 children.append(
                     {"name": entry.name, "path": rel, "hasChildren": has_sub}
@@ -975,7 +981,7 @@ def _extract_alias(en_pdf: Path) -> tuple:
         rate_limiter.acquire()
 
         response = client.models.generate_content(
-            model="gemini-3-flash-preview",
+            model="gemini-3.1-flash-lite-preview",
             contents=_ALIAS_PROMPT + first_page_text,
             config=genai_types.GenerateContentConfig(
                 thinking_config=genai_types.ThinkingConfig(thinking_level="minimal"),

@@ -1,23 +1,69 @@
+# Editor / IDE
 .vscode
-install_output
-node_modules
-dist
-build
-images
-images_zh
-pdfs
-pdfs_zh
-notes
-images-t
-images_zh-t
-pdfs-t
-pdfs_zh-t
-notes-t
-.gradle
+.idea
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+
+# Build outputs
+build/
+dist/
+installer_output/
+install_output/
+
+# User data (created at runtime, stored in ~/Documents/PaperReader/)
+data/
+pdfs/
+pdfs_zh/
+notes/
+images/
+images_zh/
+chat_images/
+tmp/
+
+# Temporary / test directories (with -t suffix)
+images-t/
+images_zh-t/
+pdfs-t/
+pdfs_zh-t/
+notes-t/
+
+# Old standalone templates (for obsolete scripts)
+templates/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Gradle (Android/Capacitor)
+.gradle/
+android/
+
+# Misc
 *.log
 *.tmp
 *.bak
 *.swp
-*.pyc
 *.zip
-__pycache__
+*.DS_Store
+Thumbs.db
+*.db

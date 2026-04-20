@@ -9,11 +9,11 @@
 ;    - Open Inno Setup Compiler -> File > Open -> select this file -> Build > Compile
 ;    - Or CLI: "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 ;
-;  Output: installer_output\PaperReader_Setup_1.0.0.exe
+;  Output: installer_output\PaperReader_Setup_1.1.0.exe
 ; ──────────────────────────────────────────────────
 
 #define MyAppName "PaperReader"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Myprefer"
 #define MyAppURL "https://github.com/Myprefer"
 #define MyAppExeName "PaperReader.exe"
@@ -95,6 +95,54 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 Type: filesandordirs; Name: "{app}\__pycache__"
 
 [Code]
+function ReadGeminiApiKey(): string;
+var
+  Value: string;
+begin
+  Result := Trim(ExpandConstant('{%GEMINI_API_KEY|}'));
+  if Result <> '' then
+    Exit;
+
+  if RegQueryStringValue(HKCU, 'Environment', 'GEMINI_API_KEY', Value) then
+  begin
+    Result := Trim(Value);
+    if Result <> '' then
+      Exit;
+  end;
+
+  if RegQueryStringValue(HKLM,
+    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+    'GEMINI_API_KEY', Value) then
+  begin
+    Result := Trim(Value);
+    if Result <> '' then
+      Exit;
+  end;
+
+  Result := '';
+end;
+
+function InitializeSetup(): Boolean;
+var
+  ApiKey: string;
+begin
+  ApiKey := ReadGeminiApiKey();
+  if ApiKey = '' then
+  begin
+    MsgBox(
+      '检测到未配置 Gemini API 环境变量（GEMINI_API_KEY）。' + #13#10 + #13#10 +
+      '请先在系统中配置好 GEMINI_API_KEY，再重新运行安装包。' + #13#10 +
+      '本次安装将立即退出。',
+      mbCriticalError,
+      MB_OK
+    );
+    Result := False;
+    Exit;
+  end;
+
+  Result := True;
+end;
+
 // Create data directory after install
 procedure CurStepChanged(CurStep: TSetupStep);
 var

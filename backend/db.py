@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS chat_message_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    sort_index INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE
+);
 """
 
 
@@ -102,6 +111,24 @@ def _migrate(conn):
         conn.execute("ALTER TABLE papers ADD COLUMN alias TEXT")
     if "alias_full" not in existing_cols:
         conn.execute("ALTER TABLE papers ADD COLUMN alias_full TEXT")
+
+    # 迁移：补充聊天图片表
+    table_exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_message_images'"
+    ).fetchone()
+    if not table_exists:
+        conn.execute(
+            """
+            CREATE TABLE chat_message_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                sort_index INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE
+            )
+            """
+        )
 
 
 def find_image_file(img_dir, stem_path):

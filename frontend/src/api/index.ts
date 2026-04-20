@@ -203,8 +203,13 @@ export async function generateNoteStream(
   onChunk: (text: string) => void,
   onDone: (noteId: number, title: string) => void,
   onError: (msg: string) => void,
+  model?: string,
 ): Promise<void> {
-  const resp = await fetch(`${BASE()}/api/papers/${paperId}/generate-note`, { method: 'POST' });
+  const resp = await fetch(`${BASE()}/api/papers/${paperId}/generate-note`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
   if (!resp.ok) {
     const err = await resp.json();
     throw new Error(err.error || '生成失败');
@@ -253,8 +258,13 @@ export function imageUrl(imageId: number, lang: string): string {
 
 export async function generateImage(
   paperId: number,
+  model?: string,
 ): Promise<{ success: boolean; id: number; title: string }> {
-  const resp = await fetch(`${BASE()}/api/papers/${paperId}/generate-image`, { method: 'POST' });
+  const resp = await fetch(`${BASE()}/api/papers/${paperId}/generate-image`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.error || '生成失败');
   return data;
@@ -332,8 +342,20 @@ export async function uploadPaper(
 // ── Folders ──
 
 export async function fetchFolders(parent: string = ''): Promise<FolderEntry[]> {
-  const resp = await fetch(`${BASE()}/api/folders?parent=${encodeURIComponent(parent)}`);
-  return resp.json();
+  const normalizedParent = (parent || '').replace(/\\+/g, '/').replace(/^\/+/, '');
+  const resp = await fetch(`${BASE()}/api/folders?parent=${encodeURIComponent(normalizedParent)}`);
+  if (!resp.ok) {
+    let errMsg = '目录加载失败';
+    try {
+      const err = await resp.json();
+      errMsg = err?.error || errMsg;
+    } catch {
+      // ignore non-json error body
+    }
+    throw new Error(errMsg);
+  }
+  const data = await resp.json();
+  return Array.isArray(data) ? data : [];
 }
 
 // ── Import Paper (SSE) ──
@@ -438,7 +460,11 @@ export async function deleteChatSession(
 
 export async function fetchChatMessages(sessionId: number): Promise<ChatMessage[]> {
   const resp = await fetch(`${BASE()}/api/chat-sessions/${sessionId}/messages`);
-  return resp.json();
+  const data = await resp.json();
+  return (data || []).map((item: any) => ({
+    ...item,
+    imageUrls: (item.image_urls || []).map((url: string) => `${BASE()}${url}`),
+  }));
 }
 
 export async function sendChatMessage(
@@ -447,12 +473,24 @@ export async function sendChatMessage(
   onChunk: (text: string) => void,
   onDone: (title?: string) => void,
   onError: (msg: string) => void,
+  imageFiles?: File[],
+  model?: string,
 ): Promise<void> {
-  const resp = await fetch(`${BASE()}/api/chat-sessions/${sessionId}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
-  });
+  const hasImage = !!imageFiles && imageFiles.length > 0;
+  const requestInit: RequestInit = { method: 'POST' };
+
+  if (hasImage) {
+    const formData = new FormData();
+    formData.append('message', message);
+    if (model) formData.append('model', model);
+    imageFiles!.forEach((file) => formData.append('images', file));
+    requestInit.body = formData;
+  } else {
+    requestInit.headers = { 'Content-Type': 'application/json' };
+    requestInit.body = JSON.stringify({ message, model });
+  }
+
+  const resp = await fetch(`${BASE()}/api/chat-sessions/${sessionId}/chat`, requestInit);
 
   if (!resp.ok) {
     const err = await resp.json();

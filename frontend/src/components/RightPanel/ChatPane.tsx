@@ -5,7 +5,45 @@ import { useStore } from '../../store/useStore';
 import type { ChatMessage } from '../../types';
 import { highlightCodeBlocks, renderMarkdown } from '../../utils/markdown';
 
+const CHAT_MODELS = [
+  'gemini-3.1-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+];
+
 /** AI 回复气泡（Markdown 渲染） */
+function GeminiIcon() {
+  return (
+    <svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <mask id="mask0_10019_819" style={{ maskType: 'alpha' }} maskUnits="userSpaceOnUse" x="8" y="8" width="112" height="112">
+        <path d="M63.892 8C62.08 38.04 38.04 62.08 8 63.892V64.108C38.04 65.92 62.08 89.96 63.892 120H64.108C65.92 89.96 89.96 65.92 120 64.108V63.892C89.96 62.08 65.92 38.04 64.108 8H63.892Z" fill="url(#paint0_linear_10019_819)" />
+      </mask>
+      <g mask="url(#mask0_10019_819)">
+        <path d="M64 0C99.3216 0 128 28.6784 128 64C128 99.3216 99.3216 128 64 128C28.6784 128 0 99.3216 0 64C0 28.6784 28.6784 0 64 0Z" fill="url(#paint1_linear_10019_819)" />
+      </g>
+      <defs>
+        <linearGradient id="paint0_linear_10019_819" x1="100.892" y1="30.04" x2="22.152" y2="96.848" gradientUnits="userSpaceOnUse"><stop stop-color="#217BFE" /><stop offset="0.14" stop-color="#1485FC" />
+          <stop offset="0.27" stop-color="#078EFB" />
+          <stop offset="0.52" stop-color="#548FFD" />
+          <stop offset="0.78" stop-color="#A190FF" />
+          <stop offset="0.89" stop-color="#AF94FE" />
+          <stop offset="1" stop-color="#BD99FE" />
+        </linearGradient>
+        <linearGradient id="paint1_linear_10019_819" x1="47.988" y1="82.52" x2="96.368" y2="32.456" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#217BFE" />
+          <stop offset="0.14" stop-color="#1485FC" />
+          <stop offset="0.27" stop-color="#078EFB" />
+          <stop offset="0.52" stop-color="#548FFD" />
+          <stop offset="0.78" stop-color="#A190FF" />
+          <stop offset="0.89" stop-color="#AF94FE" />
+          <stop offset="1" stop-color="#BD99FE" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 function ModelBubble({ content }: { content: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -27,15 +65,32 @@ export default function ChatPane() {
     chatSessions, setChatSessions,
     currentChatSessionId, setCurrentChatSessionId,
     chatStreaming, setChatStreaming,
+    chatModel, setChatModel,
     notify,
   } = useStore();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [selectedImagePreviewUrls, setSelectedImagePreviewUrls] = useState<string[]>([]);
+  const [dragOverInputArea, setDragOverInputArea] = useState(false);
   const [streamingReply, setStreamingReply] = useState('');
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef(false);
+
+  useEffect(() => {
+    if (selectedImages.length === 0) {
+      setSelectedImagePreviewUrls([]);
+      return;
+    }
+    const urls = selectedImages.map((file) => URL.createObjectURL(file));
+    setSelectedImagePreviewUrls(urls);
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [selectedImages]);
 
   // 加载会话列表
   useEffect(() => {
@@ -130,10 +185,15 @@ export default function ChatPane() {
 
   // 发送消息
   const handleSend = useCallback(async () => {
-    if (!currentChatSessionId || !inputValue.trim() || chatStreaming) return;
+    if (!currentChatSessionId || chatStreaming) return;
 
     const userMsg = inputValue.trim();
+    if (!userMsg && selectedImages.length === 0) return;
+
+    const imagesForSend = selectedImages;
+    const imagePreviewUrlsForSend = selectedImagePreviewUrls;
     setInputValue('');
+    setSelectedImages([]);
     setChatStreaming(true);
     setStreamingReply('');
     abortRef.current = false;
@@ -144,6 +204,7 @@ export default function ChatPane() {
       role: 'user',
       content: userMsg,
       created_at: new Date().toISOString(),
+      imageUrls: imagesForSend.length ? imagePreviewUrlsForSend : undefined,
     };
     setMessages((prev) => [...prev, tempUserMsg]);
 
@@ -171,6 +232,8 @@ export default function ChatPane() {
         (msg) => {
           errorMsg = msg;
         },
+        imagesForSend,
+        chatModel,
       );
 
       if (errorMsg) {
@@ -195,7 +258,71 @@ export default function ChatPane() {
       setChatStreaming(false);
       setStreamingReply('');
     }
-  }, [currentChatSessionId, inputValue, chatStreaming, currentPaper, chatSessions, setChatStreaming, setChatSessions, notify]);
+  }, [currentChatSessionId, inputValue, selectedImages, selectedImagePreviewUrls, chatStreaming, currentPaper, chatSessions, setChatStreaming, setChatSessions, notify, chatModel]);
+
+  const handlePickImage = useCallback(() => {
+    imageInputRef.current?.click();
+  }, []);
+
+  const appendImages = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+
+    const invalid = files.find((file) => !file.type.startsWith('image/'));
+    if (invalid) {
+      notify('仅支持图片文件', 'error');
+      return;
+    }
+
+    setSelectedImages((prev) => {
+      const remaining = Math.max(0, 10 - prev.length);
+      const next = [...prev, ...files.slice(0, remaining)];
+      if (files.length > remaining) {
+        notify('每条消息最多上传 10 张图片', 'info');
+      }
+      return next;
+    });
+  }, [notify]);
+
+  const handleImageChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    appendImages(files);
+    e.currentTarget.value = '';
+  }, [appendImages]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const pastedImages = items
+      .filter((item) => item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => !!file);
+
+    if (pastedImages.length > 0) {
+      e.preventDefault();
+      appendImages(pastedImages);
+    }
+  }, [appendImages]);
+
+  const handleDragOverInputArea = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!dragOverInputArea) setDragOverInputArea(true);
+  }, [dragOverInputArea]);
+
+  const handleDragLeaveInputArea = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOverInputArea(false);
+  }, []);
+
+  const handleDropInputArea = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragOverInputArea(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    appendImages(files);
+  }, [appendImages]);
+
+  const handleClearImage = useCallback((index: number) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   // 快捷键发送
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -241,6 +368,16 @@ export default function ChatPane() {
             <option key={s.id} value={s.id}>{s.title}</option>
           ))}
         </select>
+        <select
+          className="note-select"
+          value={chatModel}
+          onChange={(e) => setChatModel(e.target.value)}
+          title="AI问答模型"
+        >
+          {CHAT_MODELS.map((model) => (
+            <option key={model} value={model}>{model}</option>
+          ))}
+        </select>
         <button className="note-btn" onClick={handleNewSession} title="新建对话">＋</button>
         {currentChatSessionId && (
           <button className="note-btn danger" onClick={handleDeleteSession} title="删除对话">🗑️</button>
@@ -253,7 +390,7 @@ export default function ChatPane() {
           <div className="chat-empty-hint">
             {currentChatSessionId ? (
               <>
-                <div className="icon">🤖</div>
+                <div className="icon"><GeminiIcon /></div>
                 <div className="text">开始提问吧</div>
                 <div className="sub">第一条消息将自动附带论文 PDF<br />AI 将基于论文内容回答您的问题</div>
               </>
@@ -269,11 +406,20 @@ export default function ChatPane() {
         {messages.map((msg) => (
           <div key={msg.id} className={`chat-msg chat-msg-${msg.role}`}>
             <div className="chat-msg-avatar">
-              {msg.role === 'user' ? '👤' : '🤖'}
+              {msg.role === 'user' ? '👤' : <GeminiIcon />}
             </div>
             <div className="chat-msg-bubble">
               {msg.role === 'user'
-                ? <div className="chat-msg-text">{msg.content}</div>
+                ? <>
+                  {!!msg.imageUrls?.length && (
+                    <div className="chat-msg-images">
+                      {msg.imageUrls.map((url, idx) => (
+                        <img key={`${msg.id}-${idx}`} className="chat-msg-image" src={url} alt="uploaded" />
+                      ))}
+                    </div>
+                  )}
+                  {!!msg.content && <div className="chat-msg-text">{msg.content}</div>}
+                </>
                 : <ModelBubble content={msg.content} />
               }
             </div>
@@ -283,7 +429,7 @@ export default function ChatPane() {
         {/* 流式回复 */}
         {chatStreaming && streamingReply && (
           <div className="chat-msg chat-msg-model">
-            <div className="chat-msg-avatar">🤖</div>
+            <div className="chat-msg-avatar"><GeminiIcon /></div>
             <div className="chat-msg-bubble">
               <ModelBubble content={streamingReply} />
             </div>
@@ -292,7 +438,7 @@ export default function ChatPane() {
 
         {chatStreaming && !streamingReply && (
           <div className="chat-msg chat-msg-model">
-            <div className="chat-msg-avatar">🤖</div>
+            <div className="chat-msg-avatar"><GeminiIcon /></div>
             <div className="chat-msg-bubble">
               <div className="chat-thinking">
                 <div className="spinner" /> 思考中…
@@ -305,21 +451,60 @@ export default function ChatPane() {
 
       {/* 输入区 */}
       {currentChatSessionId && (
-        <div className="chat-input-area">
+        <div
+          className={`chat-input-area${dragOverInputArea ? ' drag-over' : ''}`}
+          onDragOver={handleDragOverInputArea}
+          onDragLeave={handleDragLeaveInputArea}
+          onDrop={handleDropInputArea}
+        >
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleImageChange}
+          />
+          <button
+            className="chat-attach-btn"
+            onClick={handlePickImage}
+            disabled={chatStreaming}
+            title="上传图片"
+          >
+            🖼️
+          </button>
+          {!!selectedImagePreviewUrls.length && (
+            <div className="chat-image-preview-list">
+              {selectedImagePreviewUrls.map((url, index) => (
+                <div key={`preview-${index}`} className="chat-image-preview-wrap">
+                  <img className="chat-image-preview" src={url} alt="preview" />
+                  <button
+                    className="chat-image-remove-btn"
+                    onClick={() => handleClearImage(index)}
+                    disabled={chatStreaming}
+                    title="移除图片"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea
             ref={inputRef}
             className="chat-input"
-            placeholder="输入问题… (Enter 发送, Shift+Enter 换行)"
+            placeholder="输入问题…（可粘贴/拖拽图片，或点击🖼️上传）"
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             disabled={chatStreaming}
             rows={1}
           />
           <button
             className="chat-send-btn"
             onClick={handleSend}
-            disabled={chatStreaming || !inputValue.trim()}
+            disabled={chatStreaming || (!inputValue.trim() && selectedImages.length === 0)}
             title="发送"
           >
             {chatStreaming ? '⏳' : '➤'}

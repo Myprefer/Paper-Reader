@@ -4,6 +4,12 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useStore } from '../../store/useStore';
 import type { ImageLang } from '../../types';
 
+const IMAGE_MODELS = [
+  'gemini-3-pro-image-preview',
+  'gemini-3.1-flash-image-preview',
+  'gemini-2.5-flash-image',
+];
+
 export default function ImagePane() {
   const confirm = useConfirm();
   const {
@@ -12,9 +18,14 @@ export default function ImagePane() {
     currentImageId, setCurrentImageId,
     imageLang, setImageLang,
     generatingImage, setGeneratingImage,
+    generatingImagePaperId, setGeneratingImagePaperId,
+    imageModel, setImageModel,
     setLightboxOpen,
     notify,
   } = useStore();
+
+  const isGeneratingCurrentPaper =
+    generatingImage && !!currentPaper && generatingImagePaperId === currentPaper.id;
 
   const [imgSrc, setImgSrc] = useState('');
   const [hasImage, setHasImage] = useState(false);
@@ -74,10 +85,11 @@ export default function ImagePane() {
   const currentImage = imagesList.find((i) => i.id === currentImageId);
 
   const handleGenerate = useCallback(async () => {
-    if (!currentPaper || generatingImage) return;
+    if (!currentPaper || isGeneratingCurrentPaper) return;
     setGeneratingImage(true);
+    setGeneratingImagePaperId(currentPaper.id);
     try {
-      const data = await api.generateImage(currentPaper.id);
+      const data = await api.generateImage(currentPaper.id, imageModel);
       // Reload images list
       const images = await api.fetchImages(currentPaper.id);
       setImagesList(images);
@@ -88,12 +100,24 @@ export default function ImagePane() {
       notify('插图生成失败: ' + e.message, 'error');
     } finally {
       setGeneratingImage(false);
+      setGeneratingImagePaperId(null);
     }
-  }, [currentPaper, generatingImage, setGeneratingImage, setImageLang, setImagesList, setCurrentImageId, notify]);
+  }, [
+    currentPaper,
+    isGeneratingCurrentPaper,
+    setGeneratingImage,
+    setGeneratingImagePaperId,
+    setImageLang,
+    setImagesList,
+    setCurrentImageId,
+    notify,
+    imageModel,
+  ]);
 
   const handleTranslate = useCallback(async () => {
-    if (!currentImageId || generatingImage) return;
+    if (!currentImageId || !currentPaper || isGeneratingCurrentPaper) return;
     setGeneratingImage(true);
+    setGeneratingImagePaperId(currentPaper.id);
     try {
       await api.translateImage(currentImageId);
       // Reload images list
@@ -107,8 +131,18 @@ export default function ImagePane() {
       notify('插图翻译失败: ' + e.message, 'error');
     } finally {
       setGeneratingImage(false);
+      setGeneratingImagePaperId(null);
     }
-  }, [currentImageId, currentPaper, generatingImage, setGeneratingImage, setImageLang, setImagesList, notify]);
+  }, [
+    currentImageId,
+    currentPaper,
+    isGeneratingCurrentPaper,
+    setGeneratingImage,
+    setGeneratingImagePaperId,
+    setImageLang,
+    setImagesList,
+    notify,
+  ]);
 
   const handleDelete = useCallback(async () => {
     if (!currentImageId || !currentPaper) return;
@@ -171,6 +205,16 @@ export default function ImagePane() {
 
       {/* Toolbar */}
       <div id="image-toolbar">
+        <select
+          className="note-select"
+          value={imageModel}
+          onChange={(e) => setImageModel(e.target.value)}
+          title="插图生成模型"
+        >
+          {IMAGE_MODELS.map((model) => (
+            <option key={model} value={model}>{model}</option>
+          ))}
+        </select>
         <div className="lang-toggle">
           {(['zh', 'en'] as ImageLang[]).map((lang) => (
             <button
@@ -183,7 +227,7 @@ export default function ImagePane() {
             </button>
           ))}
         </div>
-        {!generatingImage && hasImage && currentImageId && (
+        {!isGeneratingCurrentPaper && hasImage && currentImageId && (
           <>
             {showTranslate && (
               <button
@@ -203,7 +247,7 @@ export default function ImagePane() {
             </button>
           </>
         )}
-        {!generatingImage && (
+        {!isGeneratingCurrentPaper && (
           <button
             className="img-act-btn img-act-generate"
             title="AI 生成新插图"
@@ -217,7 +261,7 @@ export default function ImagePane() {
 
       {/* Image container */}
       <div id="image-container">
-        {generatingImage && (
+        {isGeneratingCurrentPaper && (
           <div className="empty-state">
             <div className="spinner" />
             <div className="text">正在生成插图，请稍候…</div>
@@ -225,7 +269,7 @@ export default function ImagePane() {
           </div>
         )}
 
-        {!generatingImage && !hasImage && !loading && (
+        {!isGeneratingCurrentPaper && !hasImage && !loading && (
           <div className="empty-state">
             <div className="icon">🖼️</div>
             <div className="text">
@@ -243,7 +287,7 @@ export default function ImagePane() {
           </div>
         )}
 
-        {!generatingImage && hasImage && (
+        {!isGeneratingCurrentPaper && hasImage && (
           <img
             id="paper-image"
             src={imgSrc}
@@ -253,7 +297,7 @@ export default function ImagePane() {
           />
         )}
 
-        {loading && !generatingImage && (
+        {loading && !isGeneratingCurrentPaper && (
           <div className="empty-state">
             <div className="text">加载中…</div>
           </div>

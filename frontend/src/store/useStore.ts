@@ -66,6 +66,8 @@ interface AppState {
   setOriginalNoteContent: (c: string) => void;
   generatingNote: boolean;
   setGeneratingNote: (v: boolean) => void;
+  generatingNotePaperId: number | null;
+  setGeneratingNotePaperId: (id: number | null) => void;
 
   // ── Images (multi-image) ──
   imagesList: ImageItem[];
@@ -74,6 +76,8 @@ interface AppState {
   setCurrentImageId: (id: number | null) => void;
   generatingImage: boolean;
   setGeneratingImage: (v: boolean) => void;
+  generatingImagePaperId: number | null;
+  setGeneratingImagePaperId: (id: number | null) => void;
 
   // ── Chat ──
   chatSessions: ChatSession[];
@@ -82,6 +86,12 @@ interface AppState {
   setCurrentChatSessionId: (id: number | null) => void;
   chatStreaming: boolean;
   setChatStreaming: (v: boolean) => void;
+  noteModel: string;
+  setNoteModel: (v: string) => void;
+  imageModel: string;
+  setImageModel: (v: string) => void;
+  chatModel: string;
+  setChatModel: (v: string) => void;
 
   // ── Layout ──
   sidebarCollapsed: boolean;
@@ -189,6 +199,8 @@ export const useStore = create<AppState>()(
   setOriginalNoteContent: (c) => set({ originalNoteContent: c }),
   generatingNote: false,
   setGeneratingNote: (v) => set({ generatingNote: v }),
+  generatingNotePaperId: null,
+  setGeneratingNotePaperId: (id) => set({ generatingNotePaperId: id }),
 
   // Images (multi-image)
   imagesList: [],
@@ -197,6 +209,8 @@ export const useStore = create<AppState>()(
   setCurrentImageId: (id) => set({ currentImageId: id }),
   generatingImage: false,
   setGeneratingImage: (v) => set({ generatingImage: v }),
+  generatingImagePaperId: null,
+  setGeneratingImagePaperId: (id) => set({ generatingImagePaperId: id }),
 
   // Chat
   chatSessions: [],
@@ -205,6 +219,12 @@ export const useStore = create<AppState>()(
   setCurrentChatSessionId: (id) => set({ currentChatSessionId: id }),
   chatStreaming: false,
   setChatStreaming: (v) => set({ chatStreaming: v }),
+  noteModel: 'gemini-3.1-pro-preview',
+  setNoteModel: (v) => set({ noteModel: v }),
+  imageModel: 'gemini-3-pro-image-preview',
+  setImageModel: (v) => set({ imageModel: v }),
+  chatModel: 'gemini-3.1-pro-preview',
+  setChatModel: (v) => set({ chatModel: v }),
 
   // Layout
   sidebarCollapsed: false,
@@ -291,6 +311,9 @@ export const useStore = create<AppState>()(
         pdfMode: state.pdfMode,
         rightTab: state.rightTab,
         imageLang: state.imageLang,
+        noteModel: state.noteModel,
+        imageModel: state.imageModel,
+        chatModel: state.chatModel,
         sidebarCollapsed: state.sidebarCollapsed,
         rightCollapsed: state.rightCollapsed,
       }),

@@ -37,6 +37,7 @@ PDF_ZH_DIR = DATA_DIR / "pdfs_zh"
 NOTE_DIR = DATA_DIR / "notes"
 IMAGE_EN_DIR = DATA_DIR / "images"
 IMAGE_ZH_DIR = DATA_DIR / "images_zh"
+CHAT_IMAGE_DIR = DATA_DIR / "chat_images"
 
 # ── 数据库 ──
 DB_PATH = DATA_DIR / "data" / "papers.db"

@@ -103,4 +103,5 @@ export interface ChatMessage {
   role: 'user' | 'model';
   content: string;
   created_at: string;
+  imageUrls?: string[];
 }

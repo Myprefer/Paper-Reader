@@ -15,6 +15,27 @@ from ..services.gemini import (
 
 bp = Blueprint("notes", __name__)
 
+NOTE_ALLOWED_MODELS = {
+    "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+}
+DEFAULT_NOTE_MODEL = "gemini-3.1-pro-preview"
+
+
+def _build_note_config(genai_types, model: str):
+    if model.startswith("gemini-2.5"):
+        try:
+            thinking_config = genai_types.ThinkingConfig(thinkingBudget=-1)
+        except TypeError:
+            thinking_config = genai_types.ThinkingConfig(thinking_budget=-1)
+        return genai_types.GenerateContentConfig(thinking_config=thinking_config)
+
+    return genai_types.GenerateContentConfig(
+        thinking_config=genai_types.ThinkingConfig(thinking_level="HIGH"),
+    )
+
 
 @bp.route("/api/papers/<int:paper_id>/notes")
 def api_list_notes(paper_id):
@@ -165,6 +186,11 @@ def api_generate_note(paper_id):
     if not pdf_file.exists():
         return jsonify({"error": "PDF 文件不存在"}), 404
 
+    data = request.get_json(silent=True) or {}
+    model = (data.get("model") or DEFAULT_NOTE_MODEL).strip()
+    if model not in NOTE_ALLOWED_MODELS:
+        return jsonify({"error": "不支持的笔记模型"}), 400
+
     def _stream():
         try:
             rate_limiter = get_rate_limiter()
@@ -186,13 +212,11 @@ def api_generate_note(paper_id):
                     ],
                 ),
             ]
-            config = genai_types.GenerateContentConfig(
-                thinking_config=genai_types.ThinkingConfig(thinking_level="HIGH"),
-            )
+            config = _build_note_config(genai_types, model)
 
             chunks_list = []
             for chunk in client.models.generate_content_stream(
-                model="gemini-3-pro-preview",
+                model=model,
                 contents=contents,
                 config=config,
             ):

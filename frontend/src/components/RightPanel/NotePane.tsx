@@ -4,6 +4,13 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { useStore } from '../../store/useStore';
 import { highlightCodeBlocks, renderMarkdown } from '../../utils/markdown';
 
+const NOTE_MODELS = [
+  'gemini-3.1-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+];
+
 export default function NotePane() {
   const confirm = useConfirm();
   const {
@@ -14,8 +21,13 @@ export default function NotePane() {
     noteModified, setNoteModified,
     originalNoteContent, setOriginalNoteContent,
     generatingNote, setGeneratingNote,
+    generatingNotePaperId, setGeneratingNotePaperId,
+    noteModel, setNoteModel,
     notify,
   } = useStore();
+
+  const isGeneratingCurrentPaper =
+    generatingNote && !!currentPaper && generatingNotePaperId === currentPaper.id;
 
   const [noteHtml, setNoteHtml] = useState('');
   const [editorValue, setEditorValue] = useState('');
@@ -44,7 +56,7 @@ export default function NotePane() {
         setCurrentNoteId(null);
         setOriginalNoteContent('');
         setNoteHtml(
-          '<div class="empty-state"><div class="icon">📝</div><div class="text">暂无笔记</div><div class="sub">点击 🤖 生成笔记 或 ✏️ 编辑 手动创建</div></div>',
+          '<div class="empty-state"><div class="icon">📝</div><div class="text">暂无笔记</div><div class="sub">点击 生成笔记 或 编辑 手动创建</div></div>',
         );
       }
     }).catch(() => {
@@ -57,7 +69,7 @@ export default function NotePane() {
     if (!currentNoteId) {
       if (notesList.length === 0 && currentPaper) {
         setNoteHtml(
-          '<div class="empty-state"><div class="icon">📝</div><div class="text">暂无笔记</div><div class="sub">点击 🤖 生成笔记 或 ✏️ 编辑 手动创建</div></div>',
+          '<div class="empty-state"><div class="icon">📝</div><div class="text">暂无笔记</div><div class="sub">点击 生成笔记 或 编辑 手动创建</div></div>',
         );
       }
       return;
@@ -156,8 +168,9 @@ export default function NotePane() {
   }, [currentPaper, setNotesList, setCurrentNoteId, setOriginalNoteContent, setIsEditing, notify]);
 
   const handleGenerate = useCallback(async () => {
-    if (!currentPaper || generatingNote) return;
+    if (!currentPaper || isGeneratingCurrentPaper) return;
     setGeneratingNote(true);
+    setGeneratingNotePaperId(currentPaper.id);
     setStreamHtml('');
 
     let fullText = '';
@@ -178,6 +191,7 @@ export default function NotePane() {
         (msg) => {
           throw new Error(msg);
         },
+        noteModel,
       );
 
       setOriginalNoteContent(fullText);
@@ -190,9 +204,20 @@ export default function NotePane() {
       );
     } finally {
       setGeneratingNote(false);
+      setGeneratingNotePaperId(null);
       setStreamHtml('');
     }
-  }, [currentPaper, generatingNote, notesList, setGeneratingNote, setOriginalNoteContent, setNotesList, setCurrentNoteId, notify]);
+  }, [
+    currentPaper,
+    isGeneratingCurrentPaper,
+    notesList,
+    setGeneratingNote,
+    setGeneratingNotePaperId,
+    setOriginalNoteContent,
+    setNotesList,
+    setCurrentNoteId,
+    notify,
+  ]);
 
   const handleDelete = useCallback(async () => {
     if (!currentNoteId || !currentPaper) return;
@@ -208,7 +233,7 @@ export default function NotePane() {
         setCurrentNoteId(null);
         setOriginalNoteContent('');
         setNoteHtml(
-          '<div class="empty-state"><div class="icon">📝</div><div class="text">暂无笔记</div><div class="sub">点击 🤖 生成笔记 或 ✏️ 编辑 手动创建</div></div>',
+          '<div class="empty-state"><div class="icon">📝</div><div class="text">暂无笔记</div><div class="sub">点击 生成笔记 或 编辑 手动创建</div></div>',
         );
       }
       notify('笔记已删除', 'success');
@@ -273,21 +298,31 @@ export default function NotePane() {
             ))}
           </select>
         )}
-        {!generatingNote && !isEditing && (
+        <select
+          className="note-select"
+          value={noteModel}
+          onChange={(e) => setNoteModel(e.target.value)}
+          title="笔记生成模型"
+        >
+          {NOTE_MODELS.map((model) => (
+            <option key={model} value={model}>{model}</option>
+          ))}
+        </select>
+        {!isGeneratingCurrentPaper && !isEditing && (
           <>
             {notesList.length > 0 && (
               <button className="note-btn" onClick={() => handleCreateNote('')} title="新建笔记">＋</button>
             )}
             <button className="note-btn" onClick={enterEditMode}>
-              ✏️ {notesList.length === 0 && !currentNoteId ? '新建' : '编辑'}
+              {notesList.length === 0 && !currentNoteId ? '新建' : '编辑'}
             </button>
             {hasNote && currentNoteId && (
               <button className="note-btn danger" onClick={handleDelete}>
-                🗑️ 删除
+                删除
               </button>
             )}
             <button className="note-btn primary" onClick={handleGenerate}>
-              🤖 生成笔记
+              生成
             </button>
           </>
         )}
@@ -302,12 +337,12 @@ export default function NotePane() {
           </>
         )}
         <span id="note-status">
-          {saving ? '保存中…' : generatingNote ? '⏳ 正在生成…' : noteModified ? '● 未保存' : ''}
+          {saving ? '保存中…' : isGeneratingCurrentPaper ? '⏳ 正在生成…' : noteModified ? '● 未保存' : ''}
         </span>
       </div>
 
       {/* Generating bar */}
-      {generatingNote && (
+      {isGeneratingCurrentPaper && (
         <>
           <div className="note-generating-bar">
             <div className="spinner" />
@@ -323,7 +358,7 @@ export default function NotePane() {
       )}
 
       {/* Note view */}
-      {!generatingNote && !isEditing && (
+      {!isGeneratingCurrentPaper && !isEditing && (
         <div
           id="note-view"
           className="markdown-body"

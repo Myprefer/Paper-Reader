@@ -2,7 +2,7 @@
 
 import mimetypes
 
-from flask import Blueprint, abort, jsonify, send_from_directory
+from flask import Blueprint, abort, jsonify, request, send_from_directory
 
 from ..config import IMAGE_EN_DIR, IMAGE_ZH_DIR, PDF_DIR
 from ..db import get_db
@@ -14,6 +14,24 @@ from ..services.gemini import (
 )
 
 bp = Blueprint("images", __name__)
+
+IMAGE_ALLOWED_MODELS = {
+    "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview",
+    "gemini-2.5-flash-image",
+}
+DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview"
+
+
+def _build_image_config(genai_types, model: str):
+    image_kwargs = {"aspect_ratio": "4:3"}
+    if not model.startswith("gemini-2.5"):
+        image_kwargs["image_size"] = "1K"
+
+    return genai_types.GenerateContentConfig(
+        image_config=genai_types.ImageConfig(**image_kwargs),
+        response_modalities=["IMAGE", "TEXT"],
+    )
 
 
 @bp.route("/api/papers/<int:paper_id>/images")
@@ -82,6 +100,11 @@ def api_generate_image(paper_id):
     if not pdf_file.exists():
         return jsonify({"error": "PDF 文件不存在"}), 404
 
+    data = request.get_json(silent=True) or {}
+    model = (data.get("model") or DEFAULT_IMAGE_MODEL).strip()
+    if model not in IMAGE_ALLOWED_MODELS:
+        return jsonify({"error": "不支持的插图模型"}), 400
+
     MAX_RETRIES = 5
     try:
         rate_limiter = get_rate_limiter()
@@ -103,10 +126,7 @@ def api_generate_image(paper_id):
                 ],
             ),
         ]
-        config = genai_types.GenerateContentConfig(
-            image_config=genai_types.ImageConfig(aspect_ratio="4:3", image_size="1K"),
-            response_modalities=["IMAGE", "TEXT"],
-        )
+        config = _build_image_config(genai_types, model)
 
         # 确定文件路径
         existing_count = db.execute(
@@ -119,7 +139,7 @@ def api_generate_image(paper_id):
             image_saved = False
 
             for chunk in client.models.generate_content_stream(
-                model="gemini-3-pro-image-preview",
+                model=model,
                 contents=contents,
                 config=config,
             ):
@@ -235,7 +255,7 @@ def api_translate_image(image_id):
             image_saved = False
 
             for chunk in client.models.generate_content_stream(
-                model="gemini-3-pro-image-preview",
+                model="gemini-3.1-flash-image-preview",
                 contents=contents,
                 config=config,
             ):
