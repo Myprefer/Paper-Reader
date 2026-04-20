@@ -4,8 +4,6 @@
 
 PaperReader 是一款本地优先的桌面应用，专为研究人员设计，将 PDF 阅读、双语对照、AI 笔记生成、AI 配图生成与 AI 问答整合于同一界面。所有数据存储在本地，无需云端账号。
 
-![screenshot](docs/screenshot.png)
-
 ---
 
 ## ✨ 功能亮点
