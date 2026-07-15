@@ -4,34 +4,27 @@ import mimetypes
 
 from flask import Blueprint, abort, jsonify, request, send_from_directory
 
-from ..config import IMAGE_EN_DIR, IMAGE_ZH_DIR, PDF_DIR
+from ..config import (
+    IMAGE_EN_DIR,
+    IMAGE_ZH_DIR,
+    OPENAI_DEFAULT_IMAGE_MODEL,
+    OPENAI_DEFAULT_TEXT_MODEL,
+    PDF_DIR,
+)
 from ..db import get_db
-from ..services.gemini import (
-    GENAI_AVAILABLE,
-    get_client,
-    get_rate_limiter,
-    get_types,
+from ..services.openai_compatible import (
+    AI_AVAILABLE,
+    edit_image,
+    extract_pdf_text,
+    generate_image,
+    image_models,
+    paper_illustration_prompt,
 )
 
 bp = Blueprint("images", __name__)
 
-IMAGE_ALLOWED_MODELS = {
-    "gemini-3-pro-image-preview",
-    "gemini-3.1-flash-image-preview",
-    "gemini-2.5-flash-image",
-}
-DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview"
-
-
-def _build_image_config(genai_types, model: str):
-    image_kwargs = {"aspect_ratio": "4:3"}
-    if not model.startswith("gemini-2.5"):
-        image_kwargs["image_size"] = "1K"
-
-    return genai_types.GenerateContentConfig(
-        image_config=genai_types.ImageConfig(**image_kwargs),
-        response_modalities=["IMAGE", "TEXT"],
-    )
+IMAGE_ALLOWED_MODELS = set(image_models())
+DEFAULT_IMAGE_MODEL = OPENAI_DEFAULT_IMAGE_MODEL
 
 
 @bp.route("/api/papers/<int:paper_id>/images")
@@ -87,9 +80,9 @@ def api_serve_image(image_id, lang):
 
 @bp.route("/api/papers/<int:paper_id>/generate-image", methods=["POST"])
 def api_generate_image(paper_id):
-    """使用 Gemini AI 为论文生成插图。"""
-    if not GENAI_AVAILABLE:
-        return jsonify({"error": "google-genai 未安装"}), 500
+    """使用 OpenAI-compatible API 为论文生成插图。"""
+    if not AI_AVAILABLE:
+        return jsonify({"error": "OpenAI-compatible API 未配置"}), 500
 
     db = get_db()
     paper = db.execute("SELECT * FROM papers WHERE id = ?", (paper_id,)).fetchone()
@@ -105,28 +98,10 @@ def api_generate_image(paper_id):
     if model not in IMAGE_ALLOWED_MODELS:
         return jsonify({"error": "不支持的插图模型"}), 400
 
-    MAX_RETRIES = 5
     try:
-        rate_limiter = get_rate_limiter()
-        client = get_client()
-        genai_types = get_types()
-        rate_limiter.acquire()
-
-        pdf_bytes = pdf_file.read_bytes()
-        contents = [
-            genai_types.Content(
-                role="user",
-                parts=[
-                    genai_types.Part.from_text(
-                        text="为这篇论文绘制一张清晰易懂的，科研论文配图用来辅助讲解这篇论文的核心创新点"
-                    ),
-                    genai_types.Part.from_bytes(
-                        data=pdf_bytes, mime_type="application/pdf"
-                    ),
-                ],
-            ),
-        ]
-        config = _build_image_config(genai_types, model)
+        pdf_text = extract_pdf_text(pdf_file)
+        prompt = paper_illustration_prompt(pdf_text, model=OPENAI_DEFAULT_TEXT_MODEL)
+        image_bytes, mime_type = generate_image(prompt, model=model)
 
         # 确定文件路径
         existing_count = db.execute(
@@ -134,74 +109,23 @@ def api_generate_image(paper_id):
         ).fetchone()["cnt"]
         stem = paper["pdf_path"].rsplit(".", 1)[0]
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            text_chunks = []
-            image_saved = False
+        file_ext = mimetypes.guess_extension(mime_type) or ".png"
+        if existing_count == 0:
+            img_path = stem + file_ext
+            title = "默认插图"
+        else:
+            img_path = f"{stem} ({existing_count + 1}){file_ext}"
+            title = f"插图 {existing_count + 1}"
 
-            for chunk in client.models.generate_content_stream(
-                model=model,
-                contents=contents,
-                config=config,
-            ):
-                if chunk.parts is None:
-                    continue
-                part = chunk.parts[0]
-                if part.inline_data and part.inline_data.data:
-                    inline_data = part.inline_data
-                    file_ext = (
-                        mimetypes.guess_extension(inline_data.mime_type) or ".png"
-                    )
-
-                    if existing_count == 0:
-                        img_path = stem + file_ext
-                        title = "默认插图"
-                    else:
-                        img_path = f"{stem} ({existing_count + 1}){file_ext}"
-                        title = f"插图 {existing_count + 1}"
-
-                    out_file = IMAGE_EN_DIR / img_path
-                    out_file.parent.mkdir(parents=True, exist_ok=True)
-                    out_file.write_bytes(inline_data.data)
-
-                    cursor = db.execute(
-                        "INSERT INTO images (paper_id, title, file_path) VALUES (?, ?, ?)",
-                        (paper_id, title, img_path),
-                    )
-                    db.commit()
-                    image_saved = True
-                    return jsonify(
-                        {
-                            "success": True,
-                            "id": cursor.lastrowid,
-                            "title": title,
-                        }
-                    )
-                elif chunk.text:
-                    text_chunks.append(chunk.text)
-
-            if not image_saved and attempt < MAX_RETRIES:
-                received_text = "".join(text_chunks).strip()
-                if received_text:
-                    contents.append(
-                        genai_types.Content(
-                            role="model",
-                            parts=[
-                                genai_types.Part.from_text(text=received_text),
-                            ],
-                        )
-                    )
-                contents.append(
-                    genai_types.Content(
-                        role="user",
-                        parts=[
-                            genai_types.Part.from_text(
-                                text="请直接生成图片，不要只回复文字。"
-                            ),
-                        ],
-                    )
-                )
-
-        return jsonify({"error": f"重试 {MAX_RETRIES} 次后仍未生成图片"}), 500
+        out_file = IMAGE_EN_DIR / img_path
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(image_bytes)
+        cursor = db.execute(
+            "INSERT INTO images (paper_id, title, file_path) VALUES (?, ?, ?)",
+            (paper_id, title, img_path),
+        )
+        db.commit()
+        return jsonify({"success": True, "id": cursor.lastrowid, "title": title})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -209,8 +133,8 @@ def api_generate_image(paper_id):
 @bp.route("/api/images/<int:image_id>/translate", methods=["POST"])
 def api_translate_image(image_id):
     """将英文插图翻译为中文版本。"""
-    if not GENAI_AVAILABLE:
-        return jsonify({"error": "google-genai 未安装"}), 500
+    if not AI_AVAILABLE:
+        return jsonify({"error": "OpenAI-compatible API 未配置"}), 500
 
     db = get_db()
     image = db.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
@@ -224,89 +148,27 @@ def api_translate_image(image_id):
     if not en_file.exists():
         return jsonify({"error": "英文插图文件不存在"}), 404
 
-    MAX_RETRIES = 5
     try:
-        rate_limiter = get_rate_limiter()
-        client = get_client()
-        genai_types = get_types()
-        rate_limiter.acquire()
-
         img_bytes = en_file.read_bytes()
         mime = mimetypes.guess_type(str(en_file))[0] or "image/png"
-
-        contents = [
-            genai_types.Content(
-                role="user",
-                parts=[
-                    genai_types.Part.from_bytes(data=img_bytes, mime_type=mime),
-                    genai_types.Part.from_text(
-                        text="将图改为中文版本，Memory指的是记忆"
-                    ),
-                ],
-            ),
-        ]
-        config = genai_types.GenerateContentConfig(
-            image_config=genai_types.ImageConfig(aspect_ratio="4:3", image_size="2K"),
-            response_modalities=["IMAGE", "TEXT"],
+        translated_bytes, translated_mime = edit_image(
+            img_bytes,
+            mime,
+            "保持原图构图、风格和所有视觉元素不变，只把图中的英文文字准确翻译为简体中文。Memory 翻译为“记忆”。",
+            model=DEFAULT_IMAGE_MODEL,
         )
-
-        for attempt in range(1, MAX_RETRIES + 1):
-            text_chunks = []
-            image_saved = False
-
-            for chunk in client.models.generate_content_stream(
-                model="gemini-3.1-flash-image-preview",
-                contents=contents,
-                config=config,
-            ):
-                if chunk.parts is None:
-                    continue
-                part = chunk.parts[0]
-                if part.inline_data and part.inline_data.data:
-                    inline_data = part.inline_data
-                    file_ext = (
-                        mimetypes.guess_extension(inline_data.mime_type) or ".png"
-                    )
-                    en_base = image["file_path"].rsplit(".", 1)[0]
-                    zh_path = en_base + file_ext
-
-                    out_file = IMAGE_ZH_DIR / zh_path
-                    out_file.parent.mkdir(parents=True, exist_ok=True)
-                    out_file.write_bytes(inline_data.data)
-
-                    db.execute(
-                        "UPDATE images SET file_zh_path = ? WHERE id = ?",
-                        (zh_path, image_id),
-                    )
-                    db.commit()
-                    image_saved = True
-                    return jsonify({"success": True})
-                elif chunk.text:
-                    text_chunks.append(chunk.text)
-
-            if not image_saved and attempt < MAX_RETRIES:
-                received_text = "".join(text_chunks).strip()
-                if received_text:
-                    contents.append(
-                        genai_types.Content(
-                            role="model",
-                            parts=[
-                                genai_types.Part.from_text(text=received_text),
-                            ],
-                        )
-                    )
-                contents.append(
-                    genai_types.Content(
-                        role="user",
-                        parts=[
-                            genai_types.Part.from_text(
-                                text="请直接生成中文版图片，不要只回复文字。"
-                            ),
-                        ],
-                    )
-                )
-
-        return jsonify({"error": f"重试 {MAX_RETRIES} 次后仍未生成图片"}), 500
+        file_ext = mimetypes.guess_extension(translated_mime) or ".png"
+        en_base = image["file_path"].rsplit(".", 1)[0]
+        zh_path = en_base + file_ext
+        out_file = IMAGE_ZH_DIR / zh_path
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(translated_bytes)
+        db.execute(
+            "UPDATE images SET file_zh_path = ? WHERE id = ?",
+            (zh_path, image_id),
+        )
+        db.commit()
+        return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

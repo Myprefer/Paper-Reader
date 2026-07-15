@@ -6,14 +6,16 @@ import type { ChatMessage } from '../../types';
 import { highlightCodeBlocks, renderMarkdown } from '../../utils/markdown';
 
 const CHAT_MODELS = [
-  'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
+  'gpt-5.4-mini',
+  'gpt-5.4',
+  'gpt-5.5',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
 ];
 
 /** AI 回复气泡（Markdown 渲染） */
-function GeminiIcon() {
+function AIIcon() {
   return (
     <svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
       <mask id="mask0_10019_819" style={{ maskType: 'alpha' }} maskUnits="userSpaceOnUse" x="8" y="8" width="112" height="112">
@@ -390,7 +392,7 @@ export default function ChatPane() {
           <div className="chat-empty-hint">
             {currentChatSessionId ? (
               <>
-                <div className="icon"><GeminiIcon /></div>
+                <div className="icon"><AIIcon /></div>
                 <div className="text">开始提问吧</div>
                 <div className="sub">第一条消息将自动附带论文 PDF<br />AI 将基于论文内容回答您的问题</div>
               </>
@@ -406,7 +408,7 @@ export default function ChatPane() {
         {messages.map((msg) => (
           <div key={msg.id} className={`chat-msg chat-msg-${msg.role}`}>
             <div className="chat-msg-avatar">
-              {msg.role === 'user' ? '👤' : <GeminiIcon />}
+              {msg.role === 'user' ? '👤' : <AIIcon />}
             </div>
             <div className="chat-msg-bubble">
               {msg.role === 'user'
@@ -429,7 +431,7 @@ export default function ChatPane() {
         {/* 流式回复 */}
         {chatStreaming && streamingReply && (
           <div className="chat-msg chat-msg-model">
-            <div className="chat-msg-avatar"><GeminiIcon /></div>
+            <div className="chat-msg-avatar"><AIIcon /></div>
             <div className="chat-msg-bubble">
               <ModelBubble content={streamingReply} />
             </div>
@@ -438,7 +440,7 @@ export default function ChatPane() {
 
         {chatStreaming && !streamingReply && (
           <div className="chat-msg chat-msg-model">
-            <div className="chat-msg-avatar"><GeminiIcon /></div>
+            <div className="chat-msg-avatar"><AIIcon /></div>
             <div className="chat-msg-bubble">
               <div className="chat-thinking">
                 <div className="spinner" /> 思考中…
@@ -514,5 +516,4 @@ export default function ChatPane() {
     </div>
   );
 }
-
 

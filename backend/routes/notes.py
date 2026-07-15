@@ -4,37 +4,19 @@ import json
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
-from ..config import NOTE_DIR, PDF_DIR
+from ..config import NOTE_DIR, OPENAI_DEFAULT_TEXT_MODEL, PDF_DIR
 from ..db import get_connection, get_db
-from ..services.gemini import (
-    GENAI_AVAILABLE,
-    get_client,
-    get_rate_limiter,
-    get_types,
+from ..services.openai_compatible import (
+    AI_AVAILABLE,
+    chat_stream,
+    extract_pdf_text,
+    text_models,
 )
 
 bp = Blueprint("notes", __name__)
 
-NOTE_ALLOWED_MODELS = {
-    "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-}
-DEFAULT_NOTE_MODEL = "gemini-3.1-pro-preview"
-
-
-def _build_note_config(genai_types, model: str):
-    if model.startswith("gemini-2.5"):
-        try:
-            thinking_config = genai_types.ThinkingConfig(thinkingBudget=-1)
-        except TypeError:
-            thinking_config = genai_types.ThinkingConfig(thinking_budget=-1)
-        return genai_types.GenerateContentConfig(thinking_config=thinking_config)
-
-    return genai_types.GenerateContentConfig(
-        thinking_config=genai_types.ThinkingConfig(thinking_level="HIGH"),
-    )
+NOTE_ALLOWED_MODELS = set(text_models())
+DEFAULT_NOTE_MODEL = OPENAI_DEFAULT_TEXT_MODEL
 
 
 @bp.route("/api/papers/<int:paper_id>/notes")
@@ -173,9 +155,9 @@ def api_delete_note(note_id):
 
 @bp.route("/api/papers/<int:paper_id>/generate-note", methods=["POST"])
 def api_generate_note(paper_id):
-    """使用 Gemini AI 为论文生成笔记，SSE 流式返回。"""
-    if not GENAI_AVAILABLE:
-        return jsonify({"error": "google-genai 未安装"}), 500
+    """使用 OpenAI-compatible API 为论文生成笔记，SSE 流式返回。"""
+    if not AI_AVAILABLE:
+        return jsonify({"error": "OpenAI-compatible API 未配置"}), 500
 
     db = get_db()
     paper = db.execute("SELECT * FROM papers WHERE id = ?", (paper_id,)).fetchone()
@@ -193,36 +175,21 @@ def api_generate_note(paper_id):
 
     def _stream():
         try:
-            rate_limiter = get_rate_limiter()
-            client = get_client()
-            genai_types = get_types()
-
-            rate_limiter.acquire()
-            pdf_bytes = pdf_file.read_bytes()
-            contents = [
-                genai_types.Content(
-                    role="user",
-                    parts=[
-                        genai_types.Part.from_bytes(
-                            data=pdf_bytes, mime_type="application/pdf"
-                        ),
-                        genai_types.Part.from_text(
-                            text="讲解这篇论文，用中文，附必要的公式或例子"
-                        ),
-                    ],
-                ),
+            pdf_text = extract_pdf_text(pdf_file)
+            messages = [
+                {
+                    "role": "user",
+                    "content": (
+                        "讲解下面这篇论文，用中文生成结构清晰的 Markdown 笔记，"
+                        "附必要的公式或例子。\n\n论文内容：\n" + pdf_text
+                    ),
+                }
             ]
-            config = _build_note_config(genai_types, model)
 
             chunks_list = []
-            for chunk in client.models.generate_content_stream(
-                model=model,
-                contents=contents,
-                config=config,
-            ):
-                if chunk.text:
-                    chunks_list.append(chunk.text)
-                    yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.text})}\n\n"
+            for chunk in chat_stream(messages, model=model):
+                chunks_list.append(chunk)
+                yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
 
             full_text = "".join(chunks_list)
 

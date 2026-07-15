@@ -30,7 +30,7 @@ a = Analysis(
         'backend.routes.notes',
         'backend.routes.images',
         'backend.services',
-        'backend.services.gemini',
+        'backend.services.openai_compatible',
         'engineio.async_drivers.threading',
     ],
     hookspath=[],

@@ -12,8 +12,8 @@ PaperReader 是一款本地优先的桌面应用，专为研究人员设计，�
 |------|------|
 | **论文管理** | 树形文件夹组织，支持拖拽移动、批量导入 |
 | **双语 PDF** | 中英文 PDF 并排对照阅读 |
-| **AI 笔记** | 调用 Gemini 对论文生成结构化中文讲解笔记（流式输出）|
-| **AI 配图** | 让 Gemini 为论文核心概念生成可视化插图 |
+| **AI 笔记** | 调用 OpenAI-compatible API 对论文生成结构化中文讲解笔记（流式输出）|
+| **AI 配图** | 使用兼容图片接口为论文核心概念生成可视化插图 |
 | **AI 问答** | 基于 PDF 全文的多轮对话，支持图片上传 |
 | **插图管理** | 每篇论文的配图库，支持中英双版本对照 |
 | **离线优先** | 除 AI 接口外全部本地运行，数据存于 `~/Documents/PaperReader/` |
@@ -26,8 +26,8 @@ PaperReader 是一款本地优先的桌面应用，专为研究人员设计，�
 - Python 3.10+
 - Flask + Flask-CORS
 - SQLite（通过标准库 `sqlite3`）
-- Google Gemini API（`google-genai`）
-- PyMuPDF（ArXiv ID 提取）
+- OpenAI-compatible API（Chat Completions + Images）
+- PyMuPDF（PDF 本地文本提取、ArXiv ID 提取）
 
 **前端**
 - React 19 + TypeScript
@@ -47,7 +47,7 @@ PaperReader 是一款本地优先的桌面应用，专为研究人员设计，�
 
 - Python 3.10+
 - Node.js 18+
-- [Gemini API Key](https://aistudio.google.com/apikey)（AI 功能必需）
+- 可用的 OpenAI-compatible API 地址和密钥（AI 功能必需）
 
 ### 1. 克隆并安装依赖
 
@@ -64,21 +64,28 @@ npm install
 cd ..
 ```
 
-### 2. 配置 API Key
+### 2. 配置 AI API
 
 ```bash
 # Windows (PowerShell)
-$env:GEMINI_API_KEY = "your-api-key-here"
+$env:OPENAI_BASE_URL = "http://localhost:55696/v1"
+$env:OPENAI_API_KEY = "your-api-key-here"
 
 # Linux / macOS
-export GEMINI_API_KEY="your-api-key-here"
+export OPENAI_BASE_URL="http://localhost:55696/v1"
+export OPENAI_API_KEY="your-api-key-here"
 ```
 
 也可在项目根目录创建 `.env` 文件：
 
 ```
-GEMINI_API_KEY=your-api-key-here
+OPENAI_BASE_URL=http://localhost:55696/v1
+OPENAI_API_KEY=your-api-key-here
+OPENAI_DEFAULT_TEXT_MODEL=gpt-5.4-mini
+OPENAI_DEFAULT_IMAGE_MODEL=gpt-image-2
 ```
+
+注意：Base URL 只保留一层 `/v1`，不要写成 `/v1/v1`。
 
 ### 3. 构建前端
 
@@ -136,7 +143,7 @@ paper-reader/
 │   │   ├── chat.py         # AI 问答会话
 │   │   └── tree.py         # 文件夹树
 │   └── services/
-│       └── gemini.py       # Gemini 客户端与限速封装
+│       └── openai_compatible.py # OpenAI-compatible 客户端与 PDF/图片封装
 ├── frontend/               # React 前端
 │   ├── src/
 │   │   ├── components/     # UI 组件（Sidebar、PDFPanel、RightPanel 等）
@@ -207,7 +214,13 @@ python import_data.py --source D:\path\to\my-papers
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `GEMINI_API_KEY` | `""` | Gemini API 密钥 |
+| `OPENAI_BASE_URL` | `""` | OpenAI-compatible API 根地址 |
+| `OPENAI_API_KEY` | `""` | API 密钥 |
+| `OPENAI_DEFAULT_TEXT_MODEL` | `gpt-5.5` | 默认笔记与问答模型 |
+| `OPENAI_DEFAULT_IMAGE_MODEL` | `gpt-image-2` | 默认图片模型 |
+| `OPENAI_TEXT_MODELS` | 见 `.env.example` | 前后端允许使用的文本模型列表 |
+| `OPENAI_IMAGE_MODELS` | `gpt-image-2` | 允许使用的图片模型列表 |
+| `OPENAI_STREAM_IDLE_TIMEOUT` | `120` | 流式接口连续无文本时的超时秒数 |
 
 数据目录、模型名称等可直接修改 `config.py`。
 

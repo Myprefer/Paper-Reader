@@ -5,10 +5,12 @@ import { useStore } from '../../store/useStore';
 import { highlightCodeBlocks, renderMarkdown } from '../../utils/markdown';
 
 const NOTE_MODELS = [
-  'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
+  'gpt-5.4-mini',
+  'gpt-5.4',
+  'gpt-5.5',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
 ];
 
 export default function NotePane() {

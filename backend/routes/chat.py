@@ -1,4 +1,4 @@
-"""AI 问答路由：会话管理 + Gemini 流式对话。"""
+"""AI 问答路由：会话管理 + OpenAI-compatible 流式对话。"""
 
 import json
 import mimetypes
@@ -7,38 +7,21 @@ from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 
-from ..config import CHAT_IMAGE_DIR, PDF_DIR
+from ..config import CHAT_IMAGE_DIR, OPENAI_DEFAULT_TEXT_MODEL, PDF_DIR
 from ..db import get_connection, get_db
-from ..services.gemini import (
-    GENAI_AVAILABLE,
-    get_client,
-    get_rate_limiter,
-    get_types,
+from ..services.openai_compatible import (
+    AI_AVAILABLE,
+    chat_stream,
+    extract_pdf_text,
+    multimodal_content,
+    text_models,
 )
 
 bp = Blueprint("chat", __name__)
 
-CHAT_ALLOWED_MODELS = {
-    "gemini-3.1-pro-preview",
-    "gemini-3-flash-preview",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-}
-DEFAULT_CHAT_MODEL = "gemini-3.1-pro-preview"
+CHAT_ALLOWED_MODELS = set(text_models())
+DEFAULT_CHAT_MODEL = OPENAI_DEFAULT_TEXT_MODEL
 MAX_IMAGES_PER_MESSAGE = 10
-
-
-def _build_chat_config(genai_types, model: str):
-    if model.startswith("gemini-2.5"):
-        try:
-            thinking_config = genai_types.ThinkingConfig(thinkingBudget=-1)
-        except TypeError:
-            thinking_config = genai_types.ThinkingConfig(thinking_budget=-1)
-        return genai_types.GenerateContentConfig(thinking_config=thinking_config)
-
-    return genai_types.GenerateContentConfig(
-        thinking_config=genai_types.ThinkingConfig(thinking_level="HIGH"),
-    )
 
 
 # ── 会话 CRUD ──
@@ -174,12 +157,12 @@ def api_chat_image_file(relative_path):
 
 @bp.route("/api/chat-sessions/<int:session_id>/chat", methods=["POST"])
 def api_chat(session_id):
-    """向 Gemini 发送对话消息，SSE 流式返回回复。
+    """向 OpenAI-compatible API 发送对话消息，SSE 流式返回回复。
 
     第一条消息时自动附带论文 PDF。
     """
-    if not GENAI_AVAILABLE:
-        return jsonify({"error": "google-genai 未安装"}), 500
+    if not AI_AVAILABLE:
+        return jsonify({"error": "OpenAI-compatible API 未配置"}), 500
 
     db = get_db()
     session = db.execute(
@@ -256,99 +239,52 @@ def api_chat(session_id):
 
     def _stream():
         try:
-            rate_limiter = get_rate_limiter()
-            client = get_client()
-            genai_types = get_types()
+            # PDF 在本地提取为文本，避免依赖服务商特有的 PDF 上传格式。
+            paper_context = ""
+            if pdf_path.exists():
+                paper_context = extract_pdf_text(pdf_path)
 
-            rate_limiter.acquire()
+            messages = []
+            for idx, row in enumerate(history_rows):
+                text = row["content"] or ""
+                if idx == 0 and row["role"] == "user" and paper_context:
+                    text = f"以下是论文全文，请据此回答本会话中的问题：\n\n{paper_context}\n\n用户问题：\n{text}"
 
-            # 构建对话 contents
-            contents = []
-
-            if is_first_message:
-                # 第一条消息：包含 PDF
-                parts = []
-                if pdf_path.exists():
-                    pdf_bytes = pdf_path.read_bytes()
-                    parts.append(
-                        genai_types.Part.from_bytes(
-                            data=pdf_bytes, mime_type="application/pdf"
-                        )
-                    )
-                for image in request_images:
-                    parts.append(
-                        genai_types.Part.from_bytes(
-                            data=image["bytes"], mime_type=image["mime"]
-                        )
-                    )
-                if user_msg:
-                    parts.append(
-                        genai_types.Part.from_text(
-                            text=(
-                                f"{user_msg}"
+                images = []
+                if row["role"] == "user":
+                    for image_rel_path in history_image_map.get(row["id"], []):
+                        image_path = CHAT_IMAGE_DIR / image_rel_path
+                        if image_path.exists() and image_path.is_file():
+                            images.append(
+                                {
+                                    "bytes": image_path.read_bytes(),
+                                    "mime": mimetypes.guess_type(str(image_path))[0]
+                                    or "image/png",
+                                }
                             )
-                        )
-                    )
-                contents.append(
-                    genai_types.Content(role="user", parts=parts)
-                )
-            else:
-                # 后续消息：加载历史 + 新消息
-                # 第一条历史消息添加 PDF（如果会话是带 PDF 开始的）
-                for idx, row in enumerate(history_rows):
-                    parts = []
-                    if idx == 0 and row["role"] == "user" and pdf_path.exists():
-                        pdf_bytes = pdf_path.read_bytes()
-                        parts.append(
-                            genai_types.Part.from_bytes(
-                                data=pdf_bytes, mime_type="application/pdf"
-                            )
-                        )
-                    if row["role"] == "user":
-                        for image_rel_path in history_image_map.get(row["id"], []):
-                            image_path = CHAT_IMAGE_DIR / image_rel_path
-                            if image_path.exists() and image_path.is_file():
-                                mime = mimetypes.guess_type(str(image_path))[0] or "image/png"
-                                parts.append(
-                                    genai_types.Part.from_bytes(
-                                        data=image_path.read_bytes(), mime_type=mime
-                                    )
-                                )
-                    if row["content"]:
-                        parts.append(genai_types.Part.from_text(text=row["content"]))
-                    contents.append(
-                        genai_types.Content(role=row["role"], parts=parts)
-                    )
 
-                # 追加当前用户消息
-                current_parts = []
-                for image in request_images:
-                    current_parts.append(
-                        genai_types.Part.from_bytes(
-                            data=image["bytes"], mime_type=image["mime"]
-                        )
-                    )
-                if user_msg:
-                    current_parts.append(genai_types.Part.from_text(text=user_msg))
-                contents.append(
-                    genai_types.Content(
-                        role="user",
-                        parts=current_parts,
-                    )
-                )
+                role = "assistant" if row["role"] == "model" else row["role"]
+                content = multimodal_content(text, images) if images else text
+                messages.append({"role": role, "content": content})
 
-            config = _build_chat_config(genai_types, model)
+            current_text = user_msg
+            if is_first_message and paper_context:
+                current_text = (
+                    f"以下是论文全文，请据此回答本会话中的问题：\n\n{paper_context}"
+                    f"\n\n用户问题：\n{user_msg}"
+                )
+            current_content = (
+                multimodal_content(current_text, request_images)
+                if request_images
+                else current_text
+            )
+            messages.append({"role": "user", "content": current_content})
 
             # 流式生成
             chunks_list = []
-            for chunk in client.models.generate_content_stream(
-                model=model,
-                contents=contents,
-                config=config,
-            ):
-                if chunk.text:
-                    chunks_list.append(chunk.text)
-                    yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.text})}\n\n"
+            for chunk in chat_stream(messages, model=model):
+                chunks_list.append(chunk)
+                yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
 
             full_reply = "".join(chunks_list)
 

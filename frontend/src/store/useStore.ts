@@ -219,11 +219,11 @@ export const useStore = create<AppState>()(
   setCurrentChatSessionId: (id) => set({ currentChatSessionId: id }),
   chatStreaming: false,
   setChatStreaming: (v) => set({ chatStreaming: v }),
-  noteModel: 'gemini-3.1-pro-preview',
+  noteModel: 'gpt-5.4-mini',
   setNoteModel: (v) => set({ noteModel: v }),
-  imageModel: 'gemini-3-pro-image-preview',
+  imageModel: 'gpt-image-2',
   setImageModel: (v) => set({ imageModel: v }),
-  chatModel: 'gemini-3.1-pro-preview',
+  chatModel: 'gpt-5.4-mini',
   setChatModel: (v) => set({ chatModel: v }),
 
   // Layout

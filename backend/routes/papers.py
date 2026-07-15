@@ -23,15 +23,19 @@ from ..config import (
     IMAGE_EXTENSIONS,
     IMAGE_ZH_DIR,
     NOTE_DIR,
+    OPENAI_DEFAULT_IMAGE_MODEL,
+    OPENAI_DEFAULT_TEXT_MODEL,
     PDF_DIR,
     PDF_ZH_DIR,
 )
 from ..db import get_connection, get_db
-from ..services.gemini import (
-    GENAI_AVAILABLE,
-    get_client,
-    get_rate_limiter,
-    get_types,
+from ..services.openai_compatible import (
+    AI_AVAILABLE,
+    chat_complete,
+    chat_stream,
+    extract_pdf_text,
+    generate_image,
+    paper_illustration_prompt,
 )
 
 bp = Blueprint("papers", __name__)
@@ -660,12 +664,12 @@ def api_import_paper():
             yield _sse(
                 {"step": "note", "status": "skip", "msg": "笔记已存在，跳过"}
             )
-        elif not GENAI_AVAILABLE:
+        elif not AI_AVAILABLE:
             yield _sse(
                 {
                     "step": "note",
                     "status": "warn",
-                    "msg": "google-genai 未安装，跳过笔记生成",
+                    "msg": "OpenAI-compatible API 未配置，跳过笔记生成",
                 }
             )
         elif not en_pdf.exists():
@@ -685,43 +689,27 @@ def api_import_paper():
                 }
             )
             try:
-                rate_limiter = get_rate_limiter()
-                client = get_client()
-                genai_types = get_types()
-                rate_limiter.acquire()
-                pdf_bytes = en_pdf.read_bytes()
-                contents = [
-                    genai_types.Content(
-                        role="user",
-                        parts=[
-                            genai_types.Part.from_bytes(
-                                data=pdf_bytes, mime_type="application/pdf"
-                            ),
-                            genai_types.Part.from_text(
-                                text="讲解这篇论文，用中文，附必要的公式或例子"
-                            ),
-                        ],
-                    ),
+                pdf_text = extract_pdf_text(en_pdf)
+                messages = [
+                    {
+                        "role": "user",
+                        "content": (
+                            "讲解下面这篇论文，用中文生成结构清晰的 Markdown 笔记，"
+                            "附必要的公式或例子。\n\n论文内容：\n" + pdf_text
+                        ),
+                    }
                 ]
-                config = genai_types.GenerateContentConfig(
-                    thinking_config=genai_types.ThinkingConfig(thinking_level="HIGH"),
-                )
                 chunks = []
-                for chunk in client.models.generate_content_stream(
-                    model="gemini-3-pro-preview",
-                    contents=contents,
-                    config=config,
-                ):
-                    if chunk.text:
-                        chunks.append(chunk.text)
-                        if len(chunks) % 10 == 0:
-                            yield _sse(
-                                {
-                                    "step": "note",
-                                    "status": "working",
-                                    "msg": f"正在生成笔记…（已生成 {sum(len(c) for c in chunks)} 字符）",
-                                }
-                            )
+                for chunk in chat_stream(messages, model=OPENAI_DEFAULT_TEXT_MODEL):
+                    chunks.append(chunk)
+                    if len(chunks) % 10 == 0:
+                        yield _sse(
+                            {
+                                "step": "note",
+                                "status": "working",
+                                "msg": f"正在生成笔记…（已生成 {sum(len(c) for c in chunks)} 字符）",
+                            }
+                        )
 
                 full_text = "".join(chunks)
                 note_path = stem_rel + ".md"
@@ -768,12 +756,12 @@ def api_import_paper():
             yield _sse(
                 {"step": "image", "status": "skip", "msg": "插图已存在，跳过"}
             )
-        elif not GENAI_AVAILABLE:
+        elif not AI_AVAILABLE:
             yield _sse(
                 {
                     "step": "image",
                     "status": "warn",
-                    "msg": "google-genai 未安装，跳过插图生成",
+                    "msg": "OpenAI-compatible API 未配置，跳过插图生成",
                 }
             )
         elif not en_pdf.exists():
@@ -793,112 +781,31 @@ def api_import_paper():
                 }
             )
             try:
-                rate_limiter = get_rate_limiter()
-                client = get_client()
-                genai_types = get_types()
-                rate_limiter.acquire()
-                pdf_bytes = en_pdf.read_bytes()
-                img_contents = [
-                    genai_types.Content(
-                        role="user",
-                        parts=[
-                            genai_types.Part.from_text(
-                                text="为这篇论文绘制一张清晰易懂的，科研论文配图用来辅助讲解这篇论文的核心创新点"
-                            ),
-                            genai_types.Part.from_bytes(
-                                data=pdf_bytes, mime_type="application/pdf"
-                            ),
-                        ],
-                    ),
-                ]
-                img_config = genai_types.GenerateContentConfig(
-                    image_config=genai_types.ImageConfig(
-                        aspect_ratio="4:3", image_size="1K"
-                    ),
-                    response_modalities=["IMAGE", "TEXT"],
+                pdf_text = extract_pdf_text(en_pdf)
+                prompt = paper_illustration_prompt(
+                    pdf_text, model=OPENAI_DEFAULT_TEXT_MODEL
                 )
-                image_saved = False
-                MAX_RETRIES = 3
-                for attempt in range(1, MAX_RETRIES + 1):
-                    text_chunks = []
-                    for chunk in client.models.generate_content_stream(
-                        model="gemini-3-pro-image-preview",
-                        contents=img_contents,
-                        config=img_config,
-                    ):
-                        if chunk.parts is None:
-                            continue
-                        part = chunk.parts[0]
-                        if part.inline_data and part.inline_data.data:
-                            inline_data = part.inline_data
-                            file_ext = (
-                                mimetypes.guess_extension(inline_data.mime_type)
-                                or ".png"
-                            )
-                            img_path = stem_rel + file_ext
-                            out_file = IMAGE_EN_DIR / img_path
-                            out_file.parent.mkdir(parents=True, exist_ok=True)
-                            out_file.write_bytes(inline_data.data)
-                            image_saved = True
+                image_bytes, mime_type = generate_image(
+                    prompt, model=OPENAI_DEFAULT_IMAGE_MODEL
+                )
+                file_ext = mimetypes.guess_extension(mime_type) or ".png"
+                img_path = stem_rel + file_ext
+                out_file = IMAGE_EN_DIR / img_path
+                out_file.parent.mkdir(parents=True, exist_ok=True)
+                out_file.write_bytes(image_bytes)
 
-                            conn = get_connection()
-                            try:
-                                conn.execute(
-                                    "INSERT INTO images (paper_id, title, file_path) VALUES (?, ?, ?)",
-                                    (paper_id, "默认插图", img_path),
-                                )
-                                conn.commit()
-                            finally:
-                                conn.close()
-                            break
-                        elif chunk.text:
-                            text_chunks.append(chunk.text)
-
-                    if image_saved:
-                        break
-                    if attempt < MAX_RETRIES:
-                        received_text = "".join(text_chunks).strip()
-                        if received_text:
-                            img_contents.append(
-                                genai_types.Content(
-                                    role="model",
-                                    parts=[
-                                        genai_types.Part.from_text(
-                                            text=received_text
-                                        ),
-                                    ],
-                                )
-                            )
-                        img_contents.append(
-                            genai_types.Content(
-                                role="user",
-                                parts=[
-                                    genai_types.Part.from_text(
-                                        text="请直接生成图片，不要只回复文字。"
-                                    ),
-                                ],
-                            )
-                        )
-                        yield _sse(
-                            {
-                                "step": "image",
-                                "status": "working",
-                                "msg": f"插图生成重试 ({attempt}/{MAX_RETRIES})…",
-                            }
-                        )
-
-                if image_saved:
-                    yield _sse(
-                        {"step": "image", "status": "done", "msg": "插图生成完成"}
+                conn = get_connection()
+                try:
+                    conn.execute(
+                        "INSERT INTO images (paper_id, title, file_path) VALUES (?, ?, ?)",
+                        (paper_id, "默认插图", img_path),
                     )
-                else:
-                    yield _sse(
-                        {
-                            "step": "image",
-                            "status": "warn",
-                            "msg": f"重试 {MAX_RETRIES} 次后仍未生成插图",
-                        }
-                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+                yield _sse(
+                    {"step": "image", "status": "done", "msg": "插图生成完成"}
+                )
             except Exception as e:
                 yield _sse(
                     {
@@ -956,7 +863,7 @@ Provide the result strictly in the following JSON format, without any markdown f
 
 def _extract_alias(en_pdf: Path) -> tuple:
     """从 PDF 第一页提取论文别名。返回 (alias, alias_full) 或 (None, None)。"""
-    if not GENAI_AVAILABLE or not en_pdf.exists():
+    if not AI_AVAILABLE or not en_pdf.exists():
         return None, None
 
     try:
@@ -975,19 +882,11 @@ def _extract_alias(en_pdf: Path) -> tuple:
         return None, None
 
     try:
-        rate_limiter = get_rate_limiter()
-        client = get_client()
-        genai_types = get_types()
-        rate_limiter.acquire()
-
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview",
-            contents=_ALIAS_PROMPT + first_page_text,
-            config=genai_types.GenerateContentConfig(
-                thinking_config=genai_types.ThinkingConfig(thinking_level="minimal"),
-            ),
+        text = chat_complete(
+            [{"role": "user", "content": _ALIAS_PROMPT + first_page_text}],
+            model=OPENAI_DEFAULT_TEXT_MODEL,
         )
-        text = (response.text or "").strip()
+        text = text.strip()
         # 清理可能的 markdown 代码块包裹
         if text.startswith("```"):
             text = re.sub(r"^```\w*\n?", "", text)

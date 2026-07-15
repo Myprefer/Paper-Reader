@@ -5,9 +5,7 @@ import { useStore } from '../../store/useStore';
 import type { ImageLang } from '../../types';
 
 const IMAGE_MODELS = [
-  'gemini-3-pro-image-preview',
-  'gemini-3.1-flash-image-preview',
-  'gemini-2.5-flash-image',
+  'gpt-image-2',
 ];
 
 export default function ImagePane() {
