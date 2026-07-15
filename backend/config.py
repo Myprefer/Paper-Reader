@@ -67,7 +67,7 @@ def _csv_env(name: str, default: str) -> tuple[str, ...]:
 
 
 OPENAI_BASE_URL = _normalize_openai_base_url(
-    os.getenv("OPENAI_BASE_URL", "http://localhost:55696/v1")
+    os.getenv("OPENAI_BASE_URL", "")
 )
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_TEXT_MODELS = _csv_env(

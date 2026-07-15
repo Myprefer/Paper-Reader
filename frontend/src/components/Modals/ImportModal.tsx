@@ -10,10 +10,7 @@ type ImportMode = 'arxiv' | 'manual';
 const STEP_LABELS: Record<string, string> = {
   title: '获取论文信息',
   pdf_en: '下载原文 PDF',
-  alias: '提取论文别名',
   pdf_zh: '获取中文翻译 PDF',
-  note: '生成笔记',
-  image: '生成插图',
   finish: '导入完成',
 };
 
@@ -140,8 +137,8 @@ export default function ImportModal() {
         }
       });
       if (closedEarly) {
-        // Background processing finished, refresh tree for updated badges
-        notify('后台处理完成（笔记/插图/翻译）', 'success');
+        // 中文翻译检查完成后刷新论文树
+        notify('论文导入完成（已检查中文翻译）', 'success');
         reloadAndSelect();
       } else {
         // Fallback: stream ended without early close (e.g. error before DB registration)
@@ -157,8 +154,8 @@ export default function ImportModal() {
         setImporting(false);
         setShowDone(true);
       } else {
-        // Error during background processing
-        notify('后台处理出错: ' + (e as Error).message, 'error');
+        // Error while checking the optional Chinese translation
+        notify('中文翻译检查出错: ' + (e as Error).message, 'error');
       }
     }
   }, [arxivId, folderPath, setImporting, setImportModalOpen, upsertStep, notify, reloadAndSelect]);

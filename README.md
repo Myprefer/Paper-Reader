@@ -47,7 +47,7 @@ PaperReader 是一款本地优先的桌面应用，专为研究人员设计，�
 
 - Python 3.10+
 - Node.js 18+
-- 可用的 OpenAI-compatible API 地址和密钥（AI 功能必需）
+- OpenAI-compatible API 地址和密钥（可选；仅 AI 功能需要）
 
 ### 1. 克隆并安装依赖
 
@@ -65,6 +65,8 @@ cd ..
 ```
 
 ### 2. 配置 AI API
+
+此步骤可跳过。未配置 API 时仍可正常安装、启动、管理和阅读论文，只有 AI 笔记、问答和配图功能不可用。
 
 ```bash
 # Windows (PowerShell)
@@ -211,6 +213,8 @@ python import_data.py --source D:\path\to\my-papers
 ## ⚙️ 配置说明
 
 所有配置均在 `backend/config.py` 中，主要通过环境变量覆盖：
+
+API 配置是可选项，不是安装或启动应用的前置条件。
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|

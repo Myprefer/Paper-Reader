@@ -1,7 +1,6 @@
 """论文路由：PDF 服务、中文 PDF 获取、导入、移动、文件夹列表、上传。"""
 
 import json
-import mimetypes
 import re
 import shutil
 from pathlib import Path
@@ -23,7 +22,6 @@ from ..config import (
     IMAGE_EXTENSIONS,
     IMAGE_ZH_DIR,
     NOTE_DIR,
-    OPENAI_DEFAULT_IMAGE_MODEL,
     OPENAI_DEFAULT_TEXT_MODEL,
     PDF_DIR,
     PDF_ZH_DIR,
@@ -32,10 +30,6 @@ from ..db import get_connection, get_db
 from ..services.openai_compatible import (
     AI_AVAILABLE,
     chat_complete,
-    chat_stream,
-    extract_pdf_text,
-    generate_image,
-    paper_illustration_prompt,
 )
 
 bp = Blueprint("papers", __name__)
@@ -388,18 +382,6 @@ def api_upload_paper():
     paper_id = cursor.lastrowid
     db.commit()
 
-    # 提取论文别名（使用 flash 模型，很快）
-    try:
-        alias, alias_full = _extract_alias(en_dest)
-        if alias:
-            db.execute(
-                "UPDATE papers SET alias = ?, alias_full = ? WHERE id = ?",
-                (alias, alias_full, paper_id),
-            )
-            db.commit()
-    except Exception:
-        pass  # 别名提取失败不影响导入
-
     return jsonify({
         "success": True,
         "paper_id": paper_id,
@@ -543,46 +525,13 @@ def api_import_paper():
         finally:
             conn.close()
 
-        # ── 提取论文别名（快速，使用 flash 模型） ──
-        yield _sse(
-            {"step": "alias", "status": "working", "msg": "正在提取论文别名…"}
-        )
-        try:
-            alias, alias_full = _extract_alias(en_pdf)
-            if alias:
-                conn = get_connection()
-                try:
-                    conn.execute(
-                        "UPDATE papers SET alias = ?, alias_full = ? WHERE id = ?",
-                        (alias, alias_full, paper_id),
-                    )
-                    conn.commit()
-                finally:
-                    conn.close()
-                alias_parts = [p for p in [alias, alias_full] if p]
-                yield _sse(
-                    {
-                        "step": "alias",
-                        "status": "done",
-                        "msg": f"别名: {' - '.join(alias_parts)}",
-                    }
-                )
-            else:
-                yield _sse(
-                    {"step": "alias", "status": "skip", "msg": "未检测到论文别名"}
-                )
-        except Exception as e:
-            yield _sse(
-                {"step": "alias", "status": "warn", "msg": f"别名提取失败: {e}"}
-            )
-
         # 提前发送 paper_id，前端收到后即可关闭导入窗口
         yield _sse(
             {
                 "step": "registered",
                 "status": "done",
                 "paper_id": paper_id,
-                "msg": "论文已就绪，后续处理将在后台继续",
+                "msg": "论文已就绪，正在后台检查中文翻译",
             }
         )
 
@@ -648,170 +597,6 @@ def api_import_paper():
                         "step": "pdf_zh",
                         "status": "warn",
                         "msg": f"中文 PDF 获取失败: {e}",
-                    }
-                )
-
-        # ── Step 4: 生成笔记 ──
-        conn = get_connection()
-        try:
-            existing_note = conn.execute(
-                "SELECT id FROM notes WHERE paper_id = ?", (paper_id,)
-            ).fetchone()
-        finally:
-            conn.close()
-
-        if existing_note:
-            yield _sse(
-                {"step": "note", "status": "skip", "msg": "笔记已存在，跳过"}
-            )
-        elif not AI_AVAILABLE:
-            yield _sse(
-                {
-                    "step": "note",
-                    "status": "warn",
-                    "msg": "OpenAI-compatible API 未配置，跳过笔记生成",
-                }
-            )
-        elif not en_pdf.exists():
-            yield _sse(
-                {
-                    "step": "note",
-                    "status": "warn",
-                    "msg": "原文 PDF 不存在，跳过笔记生成",
-                }
-            )
-        else:
-            yield _sse(
-                {
-                    "step": "note",
-                    "status": "working",
-                    "msg": "正在生成笔记…（AI 生成中）",
-                }
-            )
-            try:
-                pdf_text = extract_pdf_text(en_pdf)
-                messages = [
-                    {
-                        "role": "user",
-                        "content": (
-                            "讲解下面这篇论文，用中文生成结构清晰的 Markdown 笔记，"
-                            "附必要的公式或例子。\n\n论文内容：\n" + pdf_text
-                        ),
-                    }
-                ]
-                chunks = []
-                for chunk in chat_stream(messages, model=OPENAI_DEFAULT_TEXT_MODEL):
-                    chunks.append(chunk)
-                    if len(chunks) % 10 == 0:
-                        yield _sse(
-                            {
-                                "step": "note",
-                                "status": "working",
-                                "msg": f"正在生成笔记…（已生成 {sum(len(c) for c in chunks)} 字符）",
-                            }
-                        )
-
-                full_text = "".join(chunks)
-                note_path = stem_rel + ".md"
-                note_file = NOTE_DIR / note_path
-                note_file.parent.mkdir(parents=True, exist_ok=True)
-                note_file.write_text(full_text, encoding="utf-8")
-
-                conn = get_connection()
-                try:
-                    conn.execute(
-                        "INSERT INTO notes (paper_id, title, file_path) VALUES (?, ?, ?)",
-                        (paper_id, "默认笔记", note_path),
-                    )
-                    conn.commit()
-                finally:
-                    conn.close()
-
-                yield _sse(
-                    {
-                        "step": "note",
-                        "status": "done",
-                        "msg": f"笔记生成完成（{len(full_text)} 字符）",
-                    }
-                )
-            except Exception as e:
-                yield _sse(
-                    {
-                        "step": "note",
-                        "status": "warn",
-                        "msg": f"笔记生成失败: {e}",
-                    }
-                )
-
-        # ── Step 5: 生成插图 ──
-        conn = get_connection()
-        try:
-            existing_img = conn.execute(
-                "SELECT id FROM images WHERE paper_id = ?", (paper_id,)
-            ).fetchone()
-        finally:
-            conn.close()
-
-        if existing_img:
-            yield _sse(
-                {"step": "image", "status": "skip", "msg": "插图已存在，跳过"}
-            )
-        elif not AI_AVAILABLE:
-            yield _sse(
-                {
-                    "step": "image",
-                    "status": "warn",
-                    "msg": "OpenAI-compatible API 未配置，跳过插图生成",
-                }
-            )
-        elif not en_pdf.exists():
-            yield _sse(
-                {
-                    "step": "image",
-                    "status": "warn",
-                    "msg": "原文 PDF 不存在，跳过插图生成",
-                }
-            )
-        else:
-            yield _sse(
-                {
-                    "step": "image",
-                    "status": "working",
-                    "msg": "正在生成插图…（AI 生成中）",
-                }
-            )
-            try:
-                pdf_text = extract_pdf_text(en_pdf)
-                prompt = paper_illustration_prompt(
-                    pdf_text, model=OPENAI_DEFAULT_TEXT_MODEL
-                )
-                image_bytes, mime_type = generate_image(
-                    prompt, model=OPENAI_DEFAULT_IMAGE_MODEL
-                )
-                file_ext = mimetypes.guess_extension(mime_type) or ".png"
-                img_path = stem_rel + file_ext
-                out_file = IMAGE_EN_DIR / img_path
-                out_file.parent.mkdir(parents=True, exist_ok=True)
-                out_file.write_bytes(image_bytes)
-
-                conn = get_connection()
-                try:
-                    conn.execute(
-                        "INSERT INTO images (paper_id, title, file_path) VALUES (?, ?, ?)",
-                        (paper_id, "默认插图", img_path),
-                    )
-                    conn.commit()
-                finally:
-                    conn.close()
-                yield _sse(
-                    {"step": "image", "status": "done", "msg": "插图生成完成"}
-                )
-            except Exception as e:
-                yield _sse(
-                    {
-                        "step": "image",
-                        "status": "warn",
-                        "msg": f"插图生成失败: {e}",
                     }
                 )
 

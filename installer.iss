@@ -95,54 +95,6 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 Type: filesandordirs; Name: "{app}\__pycache__"
 
 [Code]
-function ReadOpenAIApiKey(): string;
-var
-  Value: string;
-begin
-  Result := Trim(ExpandConstant('{%OPENAI_API_KEY|}'));
-  if Result <> '' then
-    Exit;
-
-  if RegQueryStringValue(HKCU, 'Environment', 'OPENAI_API_KEY', Value) then
-  begin
-    Result := Trim(Value);
-    if Result <> '' then
-      Exit;
-  end;
-
-  if RegQueryStringValue(HKLM,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'OPENAI_API_KEY', Value) then
-  begin
-    Result := Trim(Value);
-    if Result <> '' then
-      Exit;
-  end;
-
-  Result := '';
-end;
-
-function InitializeSetup(): Boolean;
-var
-  ApiKey: string;
-begin
-  ApiKey := ReadOpenAIApiKey();
-  if ApiKey = '' then
-  begin
-    MsgBox(
-      '检测到未配置 OpenAI-compatible API 环境变量（OPENAI_API_KEY）。' + #13#10 + #13#10 +
-      '请先配置 OPENAI_API_KEY 和 OPENAI_BASE_URL，再重新运行安装包。' + #13#10 +
-      '本次安装将立即退出。',
-      mbCriticalError,
-      MB_OK
-    );
-    Result := False;
-    Exit;
-  end;
-
-  Result := True;
-end;
-
 // Create data directory after install
 procedure CurStepChanged(CurStep: TSetupStep);
 var
