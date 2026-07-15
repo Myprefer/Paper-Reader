@@ -20,14 +20,14 @@ echo.
 
 @REM REM === Step 2: Generate icon ===
 @REM echo [2/4] Generating app icon...
-@REM D:/ProgramData/miniconda3/envs/pytorch/python.exe scripts/generate_icon.py
+@REM C:\Users\Myprefer\.conda\envs\paper\python.exe scripts/generate_icon.py
 @REM echo [OK] Icon generated
 @REM echo.
 
 REM === Step 3: PyInstaller ===
 echo [2/3] PyInstaller packaging...
-D:/ProgramData/miniconda3/envs/pytorch/python.exe -m pip install pyinstaller --quiet 2>nul
-D:/ProgramData/miniconda3/envs/pytorch/python.exe -m PyInstaller build.spec --clean -y
+C:\Users\Myprefer\.conda\envs\paper\python.exe -m pip install pyinstaller --quiet 2>nul
+C:\Users\Myprefer\.conda\envs\paper\python.exe -m PyInstaller build.spec --clean -y
 if errorlevel 1 (
     echo [FAIL] PyInstaller failed!
     pause
@@ -44,10 +44,6 @@ if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Fil
 if exist "C:\Program Files\Inno Setup 6\ISCC.exe" set "ISCC=C:\Program Files\Inno Setup 6\ISCC.exe"
 if exist "C:\Program Files (x86)\Inno Setup 7\ISCC.exe" set "ISCC=C:\Program Files (x86)\Inno Setup 7\ISCC.exe"
 if exist "C:\Program Files\Inno Setup 7\ISCC.exe" set "ISCC=C:\Program Files\Inno Setup 7\ISCC.exe"
-if exist "D:\Program Files (x86)\Inno Setup 6\ISCC.exe" set "ISCC=D:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-if exist "D:\Program Files\Inno Setup 6\ISCC.exe" set "ISCC=D:\Program Files\Inno Setup 6\ISCC.exe"
-if exist "D:\Program Files (x86)\Inno Setup 7\ISCC.exe" set "ISCC=D:\Program Files (x86)\Inno Setup 7\ISCC.exe"
-if exist "D:\Program Files\Inno Setup 7\ISCC.exe" set "ISCC=D:\Program Files\Inno Setup 7\ISCC.exe"
 
 if defined ISCC (
     "%ISCC%" installer.iss
